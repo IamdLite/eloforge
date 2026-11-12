@@ -18,7 +18,8 @@ A mobile-first, offline-capable PWA that takes you from ~900 to 2000 Elo with in
 ## Development
 
 ```bash
-npm install          # includes the optional stockfish package (used by content scripts)
+npm install
+npm run content:setup # installs the stockfish npm package (only needed for the content scripts)
 npm run dev
 npm run build
 npm run validate     # checks every opening line / puzzle / endgame with Stockfish

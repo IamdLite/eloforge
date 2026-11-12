@@ -26,6 +26,5 @@
       "source": "/((?!engine|icons|assets|sw.js|manifest.webmanifest).*)",
       "destination": "/index.html"
     }
-  ],
-  "installCommand": "npm install --omit=optional"
+  ]
 }
