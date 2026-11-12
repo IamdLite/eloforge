@@ -5,7 +5,7 @@ import { BOARD_THEMES } from '../lib/levels';
 import type { Arrow, Marker } from '../lib/analysis';
 import { useProgress } from '../lib/store';
 import type { FinisherId } from '../lib/finishers';
-import { Announce, CallOut, FinisherFx, ImpactFx, type Impact } from './CombatFx';
+import { Announce, CallOut, FinisherFx, ImpactFx, ShotFx, type Impact, type Shot, type ShotKind } from './CombatFx';
 import { combatSfx } from './ui';
 
 export interface BoardMove {
@@ -28,6 +28,8 @@ interface Props {
   finisher?: FinisherId;
   /** big round call-out, replayed whenever `key` changes */
   announce?: { text: string; key: string | number } | null;
+  /** celebrate the piece on `square` (brilliant move, puzzle solved); replayed whenever `key` changes */
+  celebrate?: { square: string; text: string; key: string | number } | null;
 }
 
 /** A piece with a stable identity across positions, so it can slide, strike and be knocked out. */
@@ -37,9 +39,24 @@ interface Sprite {
   sq: Square;
   /** square it moved from in the latest position change */
   from?: Square;
-  anim?: 'dash' | 'strike' | 'instant';
+  anim?: 'dash' | 'hop' | 'strike' | 'salto' | 'slam' | 'instant' | 'flourish' | 'flourish-n';
+  /** ranged attackers stay on their square until the shot lands */
+  holdAt?: Square;
+  /** captured, waiting for the blow to land */
+  dying?: boolean;
   ko?: { dx: number; dy: number };
 }
+
+/** Signature attack per piece: melee pieces land the blow on arrival, ranged ones fire first and move after. */
+const ATTACK: Record<string, { anim?: Sprite['anim']; shot?: ShotKind; sound?: 'shot' | 'boom' | 'zap'; hit: number; hold?: number }> = {
+  P: { anim: 'strike', hit: 230 },
+  N: { anim: 'salto', hit: 430 },
+  K: { anim: 'slam', hit: 400 },
+  B: { shot: 'gun', sound: 'shot', hit: 550, hold: 640 },
+  R: { shot: 'cannon', sound: 'boom', hit: 550, hold: 640 },
+  Q: { shot: 'beam', sound: 'zap', hit: 500, hold: 640 },
+};
+const FIRE_AT = 420;
 
 const VALUE: Record<string, number> = { p: 1, n: 2, b: 2, r: 3, q: 4, k: 4 };
 const HIT_TEXT = ['', 'HIT!', 'CRUSH!', 'BRUTAL!', 'DEVASTATING!'];
@@ -60,12 +77,12 @@ const dist = (a: string, b: string) => Math.abs(a.charCodeAt(0) - b.charCodeAt(0
  * leftover old sprites were captured. Big jumps (new puzzle, undo several moves) just reset.
  */
 function diffSprites(prev: Sprite[], next: { sq: Square; key: string }[]) {
-  const pool = prev.filter((s) => !s.ko);
+  const pool = prev.filter((s) => !s.ko && !s.dying);
   const out: Sprite[] = [];
   const todo: { sq: Square; key: string }[] = [];
   for (const n of next) {
     const i = pool.findIndex((s) => s.sq === n.sq && s.key === n.key);
-    if (i >= 0) out.push({ ...pool.splice(i, 1)[0], anim: undefined, from: undefined });
+    if (i >= 0) out.push({ ...pool.splice(i, 1)[0], anim: undefined, from: undefined, holdAt: undefined });
     else todo.push(n);
   }
   if (todo.length > 3) return { sprites: next.map((n) => ({ id: ++spriteSeq, ...n })), moved: [] as Sprite[], dead: [] as Sprite[], reset: true };
@@ -76,7 +93,7 @@ function diffSprites(prev: Sprite[], next: { sq: Square; key: string }[]) {
     const best = cands.sort((a, b) => dist(a.sq, n.sq) - dist(b.sq, n.sq))[0];
     if (best) {
       pool.splice(pool.indexOf(best), 1);
-      const s: Sprite = { ...best, key: n.key, sq: n.sq, anim: 'dash', from: best.sq };
+      const s: Sprite = { ...best, key: n.key, sq: n.sq, anim: n.key[1] === 'N' ? 'hop' : 'dash', from: best.sq, holdAt: undefined };
       moved.push(s);
       out.push(s);
     } else out.push({ id: ++spriteSeq, ...n });
@@ -100,7 +117,7 @@ function xyToSquare(x: number, y: number, orientation: 'w' | 'b'): Square | null
   return (FILES[f] + (r + 1)) as Square;
 }
 
-export default function Board({ fen, orientation, interactive, onMove, arrows = [], markers = [], lastMove, theme, flash, finisher, announce }: Props) {
+export default function Board({ fen, orientation, interactive, onMove, arrows = [], markers = [], lastMove, theme, flash, finisher, announce, celebrate }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const settings = useProgress().settings;
   const fx = settings.fx !== false;
@@ -133,15 +150,29 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
   // ── combat layer ──
   const [sprites, setSprites] = useState<Sprite[]>(() => piecesOf(chess).map((n) => ({ id: ++spriteSeq, ...n })));
   const [impacts, setImpacts] = useState<Impact[]>([]);
-  const [callout, setCallout] = useState<{ id: number; sq: Square; text: string; kind: 'check' | 'combo' } | null>(null);
+  const [shots, setShots] = useState<Shot[]>([]);
+  const [callout, setCallout] = useState<{ id: number; sq: Square; text: string; kind: 'check' | 'combo' | 'brilliant' } | null>(null);
   const [shake, setShake] = useState(0);
   const [mateFx, setMateFx] = useState<string | null>(null);
   const [shownAnnounce, setShownAnnounce] = useState<string | number | null>(null);
   const dropped = useRef<Square | null>(null);
   const seenFen = useRef(fen);
+  const settleMs = useRef(0);
   const timers = useRef<number[]>([]);
   const later = (fn: () => void, ms: number) => timers.current.push(window.setTimeout(fn, ms));
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
+
+  const fire = (kind: ShotKind, from: { x: number; y: number }, to: { x: number; y: number }) => {
+    const id = ++spriteSeq;
+    setShots((cur) => [...cur.slice(-2), { id, kind, x1: from.x, y1: from.y, x2: to.x, y2: to.y }]);
+    later(() => setShots((cur) => cur.filter((x) => x.id !== id)), 900);
+  };
+
+  const boom = (at: { x: number; y: number }, power: number, text: string, color: string) => {
+    const id = ++spriteSeq;
+    setImpacts((cur) => [...cur.slice(-2), { id, x: at.x, y: at.y, power, text, color }]);
+    later(() => setImpacts((cur) => cur.filter((i) => i.id !== id)), 1100);
+  };
 
   useLayoutEffect(() => {
     if (seenFen.current === fen) return;
@@ -150,44 +181,88 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
     const drop = dropped.current;
     dropped.current = null;
     setMateFx(null);
+    settleMs.current = 0;
     if (reset || !fx) {
       setSprites(next.map((s) => (reset ? s : { ...s, anim: undefined })));
       setImpacts([]);
+      setShots([]);
       setCallout(null);
-    } else {
-      const victims = dead.filter((d) => d.key[1] !== 'K');
-      const attacker = moved.find((m) => victims.some((v) => v.key[0] !== m.key[0]));
-      for (const m of moved) if (m.sq === drop) m.anim = 'instant';
-      let power = 0;
-      const ko: Sprite[] = victims.map((v) => {
-        const p = VALUE[v.key[1].toLowerCase()];
-        power = Math.max(power, p);
-        const a = attacker?.from ? squareXY(attacker.from, orientation) : { x: 0, y: 0 };
+      return;
+    }
+    const sound = settings.sound;
+    const victims: Sprite[] = dead.filter((d) => d.key[1] !== 'K').map((v) => ({ ...v, anim: undefined, dying: true }));
+    const attacker = moved.find((m) => victims.some((v) => v.key[0] !== m.key[0]));
+    for (const m of moved) if (m.sq === drop) m.anim = 'instant';
+    settleMs.current = moved.some((m) => m.anim === 'hop') ? 320 : 260;
+    let hitAt = 0;
+    if (victims.length) {
+      const style = attacker ? ATTACK[attacker.key[1]] : { hit: 0 } as (typeof ATTACK)[string];
+      const from = attacker?.from ? squareXY(attacker.from, orientation) : null;
+      const target = squareXY(victims[0].sq, orientation);
+      hitAt = style.hit;
+      if (attacker && from && style.shot) {
+        // Snap back to the origin (after a drag), fire, then dash in once the target is down.
+        attacker.holdAt = attacker.from;
+        if (attacker.anim !== 'instant') attacker.anim = undefined;
+        fire(style.shot, from, target);
+        later(() => sound && style.sound && combatSfx(style.sound), FIRE_AT);
+        const id = attacker.id;
+        later(() => setSprites((cur) => cur.map((x) => (x.id === id ? { ...x, holdAt: undefined, anim: 'dash' } : x))), style.hold!);
+        settleMs.current = style.hold! + 280;
+      } else if (attacker && style.anim) {
+        if (attacker.anim !== 'instant') attacker.anim = style.anim;
+        settleMs.current = Math.max(settleMs.current, style.hit + 60);
+      }
+      const power = Math.max(...victims.map((v) => VALUE[v.key[1].toLowerCase()]));
+      const ids = new Set(victims.map((v) => v.id));
+      const dir = (v: Sprite) => {
         const b = squareXY(v.sq, orientation);
-        const dx = Math.sign(b.x - a.x) || (Math.random() < 0.5 ? -1 : 1);
-        const dy = Math.sign(b.y - a.y) || -1;
-        return { ...v, anim: undefined, ko: { dx, dy } };
-      });
-      if (attacker && attacker.anim !== 'instant') attacker.anim = 'strike';
-      setSprites([...next, ...ko]);
-      if (ko.length) {
-        later(() => setSprites((cur) => cur.filter((s) => !ko.some((k) => k.id === s.id))), 1100);
-        const at = squareXY(ko[0].sq, orientation);
-        const id = ++spriteSeq;
-        setImpacts((cur) => [...cur.slice(-2), { id, x: at.x, y: at.y, power, text: HIT_TEXT[power], color: HIT_COLOR[power] }]);
-        later(() => setImpacts((cur) => cur.filter((i) => i.id !== id)), 1300);
+        const a = from ?? { x: b.x - (Math.random() < 0.5 ? 1 : -1), y: b.y + 1 };
+        return { dx: Math.sign(b.x - a.x) || (Math.random() < 0.5 ? -1 : 1), dy: Math.sign(b.y - a.y) || -1 };
+      };
+      later(() => {
+        setSprites((cur) => cur.map((x) => (ids.has(x.id) ? { ...x, ko: dir(x) } : x)));
+        boom(target, power, HIT_TEXT[power], HIT_COLOR[power]);
         setShake(0);
         requestAnimationFrame(() => setShake(power));
         later(() => setShake(0), 600);
-        if (settings.sound) combatSfx(power >= 3 ? 'heavy' : 'hit');
-      } else if (moved.length && settings.sound) combatSfx('whoosh');
-      const mated = chess.isCheckmate();
-      const kingSq = chess.inCheck() ? next.find((s) => s.key === chess.turn() + 'K')?.sq : undefined;
-      if (kingSq && !mated) setCallout({ id: ++spriteSeq, sq: kingSq, text: ko.length ? 'COMBO!' : 'CHECK!', kind: ko.length ? 'combo' : 'check' });
-      else setCallout(null);
+        if (sound) combatSfx(power >= 3 ? 'heavy' : 'hit');
+      }, hitAt);
+      later(() => setSprites((cur) => cur.filter((x) => !ids.has(x.id))), hitAt + 900);
+    } else if (moved.length && sound) combatSfx('whoosh');
+    setSprites([...next, ...victims]);
+    const kingSq = chess.inCheck() && !chess.isCheckmate() ? next.find((x) => x.key === chess.turn() + 'K')?.sq : undefined;
+    setCallout(null);
+    if (kingSq) {
+      const c = { id: ++spriteSeq, sq: kingSq, text: victims.length ? 'COMBO!' : 'CHECK!', kind: (victims.length ? 'combo' : 'check') as 'combo' | 'check' };
+      if (hitAt) later(() => setCallout(c), hitAt);
+      else setCallout(c);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fen]);
+
+  // Brilliant moves: the piece celebrates (knights do a triple salto, ranged pieces fire into the air).
+  useEffect(() => {
+    if (!celebrate || !fx) return;
+    const sq = celebrate.square as Square;
+    const t = window.setTimeout(() => {
+      const piece = chess.get(sq);
+      if (!piece) return;
+      const at = squareXY(sq, orientation);
+      setSprites((cur) => cur.map((x) => (x.sq === sq && !x.dying && !x.ko ? { ...x, anim: piece.type === 'n' ? 'flourish-n' : 'flourish' } : x)));
+      setCallout({ id: ++spriteSeq, sq, text: celebrate.text, kind: 'brilliant' });
+      if (settings.sound) combatSfx('brilliant');
+      const style = ATTACK[piece.type.toUpperCase()];
+      const sky = { x: at.x + (at.x < 4 ? 1.5 : -1.5), y: Math.max(-0.5, at.y - 3.5) };
+      if (style.shot) {
+        fire(style.shot, at, sky);
+        later(() => settings.sound && style.sound && combatSfx(style.sound), FIRE_AT);
+        later(() => boom(sky, 2, '', '#facc15'), style.hit);
+      } else later(() => boom(at, 2, '', '#facc15'), piece.type === 'n' ? 1050 : 800);
+    }, Math.max(settleMs.current, 300));
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [celebrate?.key, fx]);
 
   // Hold the finisher until the mating piece has landed.
   const isMate = chess.isCheckmate();
@@ -197,7 +272,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
       setMateFx(fen);
       setShake(0);
       if (settings.sound) combatSfx('finisher');
-    }, 380);
+    }, Math.max(380, settleMs.current + 120));
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMate, fen, fx, finisher]);
@@ -330,7 +405,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
       </svg>
 
       {sprites.map((p) => {
-        const { x, y } = squareXY(p.sq, orientation);
+        const { x, y } = squareXY(p.holdAt ?? p.sq, orientation);
         const hidden = drag?.active && drag.from === p.sq && !p.ko;
         const cls = ['piece', p.anim, p.ko && 'ko', showMate && p.sq === checkSq && !p.ko && 'kingfx-' + finisher, fx && !p.ko && !showMate && p.sq === checkSq && 'checked'];
         return (
@@ -400,6 +475,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
 
       {fx && (
         <div className="fx-layer">
+          {shots.map((x) => <ShotFx key={x.id} fx={x} />)}
           {impacts.map((i) => <ImpactFx key={i.id} fx={i} />)}
           {callout && (() => {
             const { x, y } = squareXY(callout.sq, orientation);

@@ -91,6 +91,7 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
   const gameId = useRef(0);
 
   const [round, setRound] = useState(0);
+  const [celebrate, setCelebrate] = useState<{ square: string; text: string; key: number } | null>(null);
   const fen = fens[fens.length - 1];
   const chess = new Chess(fen);
   const finisher = finisherFor(opening ?? (startFen ? null : detectOpening(plies.map((x) => x.san))), String(round));
@@ -213,6 +214,7 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
     const v = m.lan === preLines[0].uci ? (onlyMove || sac ? 'brilliant' : 'best') : classify(bestCp, playedCp, false, false);
     const drop = Math.max(0, winPct(bestCp) - winPct(playedCp));
     setPlies((pl) => pl.map((x, i) => (i === idx ? { ...x, verdict: v, drop } : x)));
+    if (v === 'brilliant') setCelebrate({ square: m.to, text: 'BRILLIANT!!', key: Date.now() });
     setEvalCp(whiteCp(after[0], c.fen()));
     let text = notes.join(' ');
     if (['inaccuracy', 'mistake', 'blunder'].includes(v)) {
@@ -288,7 +290,7 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
       {p.settings.fx !== false && <HealthBars chess={chess} user={user} elo={elo} />}
       <div className="board-row">
         {showEval && <EvalBar cp={evalCp} orientation={user} />}
-        <Board fen={fen} orientation={user} interactive={myTurn && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} finisher={finisher} announce={{ text: 'FIGHT!', key: round }} />
+        <Board fen={fen} orientation={user} interactive={myTurn && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} finisher={finisher} announce={{ text: 'FIGHT!', key: round }} celebrate={celebrate} />
       </div>
 
       <div className="movelist plies">

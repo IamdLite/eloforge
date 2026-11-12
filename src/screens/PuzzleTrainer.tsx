@@ -25,6 +25,7 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
   const [flash, setFlash] = useState<{ square: string; kind: 'good' | 'bad' } | null>(null);
   const [arrows, setArrows] = useState<Arrow[]>([]);
   const [showThemes, setShowThemes] = useState(false);
+  const [celebrate, setCelebrate] = useState<{ square: string; text: string; key: number } | null>(null);
   const recorded = useRef(false);
   const hinted = useRef(false);
   const overlay = useOverlay(fen);
@@ -83,7 +84,7 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
     setArrows([]);
     setFeed((f) => [...f, { id: nextFeedId(), who: 'you', san: m.san, verdict: 'best', text: describeMove(m, c).join(' ') }]);
     const nk = k + 1;
-    if (nk >= puzzle.moves.length || c.isGameOver()) return solved();
+    if (nk >= puzzle.moves.length || c.isGameOver()) return solved(m.to, c.isCheckmate());
     setK(nk);
     setTimeout(() => {
       const reply = c.move(uciToMove(puzzle.moves[nk]));
@@ -95,8 +96,10 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
     }, 450);
   };
 
-  const solved = () => {
+  const solved = (sq: string, mate: boolean) => {
     setStatus('solved');
+    // A mate already gets its finisher; otherwise the winning piece celebrates.
+    if (!mate) setCelebrate({ square: sq, text: hinted.current ? 'SOLVED!' : 'BRILLIANT!!', key: Date.now() });
     sfx('good');
     record(true);
     const tips = puzzle.themes.filter((t) => THEME_INFO[t]).map((t) => `${THEME_INFO[t].name}: ${THEME_INFO[t].tip}`);
@@ -146,7 +149,7 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
         <div className="pill">{showThemes || status !== 'play' ? puzzle.rating : '????'}</div>
       </div>
 
-      <Board fen={fen} orientation={orientation} interactive={status === 'play'} onMove={onMove} arrows={[...(status === 'play' ? [] : overlay.arrows), ...arrows]} markers={status === 'play' ? [] : overlay.markers} lastMove={lastMove} theme={p.theme} flash={flash} finisher={finisherFor(null, puzzle.id)} />
+      <Board fen={fen} orientation={orientation} interactive={status === 'play'} onMove={onMove} arrows={[...(status === 'play' ? [] : overlay.arrows), ...arrows]} markers={status === 'play' ? [] : overlay.markers} lastMove={lastMove} theme={p.theme} flash={flash} finisher={finisherFor(null, puzzle.id)} celebrate={celebrate} />
 
       {showThemes && (
         <div className="tags">

@@ -1,38 +1,98 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Chess } from 'chess.js';
 import { BADGES, BOARD_THEMES, TIERS } from '../lib/levels';
 import { actions, useProgress } from '../lib/store';
 import Board from '../components/Board';
 import { FINISHERS, type FinisherId } from '../lib/finishers';
 
-const PRE_MATE = '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1';
-const MATE = '3R2k1/5ppp/8/8/8/8/5PPP/6K1 b - - 1 1';
+/** Short demo positions: White plays `san`, showing a signature attack, a brilliant flourish or a finisher. */
+interface Demo {
+  label: string;
+  icon: string;
+  desc: string;
+  fen: string;
+  san: string;
+  finisher?: FinisherId;
+  celebrate?: boolean;
+}
 
-/** Replays a back-rank mate so each checkmate finisher can be previewed. */
-function FinisherGallery({ theme }: { theme: string }) {
-  const [pick, setPick] = useState<{ id: FinisherId; n: number } | null>(null);
-  const [fen, setFen] = useState(PRE_MATE);
-  useEffect(() => {
-    if (!pick) return;
-    setFen(PRE_MATE);
-    const t = window.setTimeout(() => setFen(MATE), 450);
-    return () => clearTimeout(t);
+const ATTACK_DEMOS: Demo[] = [
+  { label: 'Pawn', icon: '♙', desc: 'Headbutt', fen: '4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1', san: 'exd5' },
+  { label: 'Knight', icon: '♘', desc: 'Somersault stomp', fen: '4k3/8/8/3r4/8/4N3/8/4K3 w - - 0 1', san: 'Nxd5' },
+  { label: 'Bishop', icon: '♗', desc: 'Draws a pistol', fen: '4k3/8/6r1/8/8/8/8/1B2K3 w - - 0 1', san: 'Bxg6' },
+  { label: 'Rook', icon: '♖', desc: 'Cannon blast', fen: '4k3/b7/8/8/8/8/8/R3K3 w - - 0 1', san: 'Rxa7' },
+  { label: 'Queen', icon: '♕', desc: 'Charged beam', fen: '3k4/8/8/7n/8/8/8/3QK3 w - - 0 1', san: 'Qxh5' },
+  { label: 'King', icon: '♔', desc: 'Ground-pound', fen: '4k3/8/8/8/8/8/3n4/4K3 w - - 0 1', san: 'Kxd2' },
+  { label: 'Brilliant!!', icon: '🤸', desc: 'Knight triple salto', fen: '4k3/8/8/8/8/8/8/1N2K3 w - - 0 1', san: 'Nc3', celebrate: true },
+  { label: 'Brilliant!!', icon: '🎯', desc: 'Bishop fires in the air', fen: '4k3/8/8/8/8/8/8/1B2K3 w - - 0 1', san: 'Be4', celebrate: true },
+];
+
+const MATE_PRE = '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1';
+const FINISHER_DEMOS: Demo[] = (Object.keys(FINISHERS) as FinisherId[]).map((id) => ({
+  label: FINISHERS[id].name,
+  icon: FINISHERS[id].icon,
+  desc: FINISHERS[id].tagline,
+  fen: MATE_PRE,
+  san: 'Rd8#',
+  finisher: id,
+}));
+
+/** Plays one demo move on a mini board so each combat animation can be previewed. */
+function CombatGallery({ theme }: { theme: string }) {
+  const [pick, setPick] = useState<{ demo: Demo; n: number } | null>(null);
+  const [fen, setFen] = useState('');
+  const after = useMemo(() => {
+    if (!pick) return null;
+    const c = new Chess(pick.demo.fen);
+    const m = c.move(pick.demo.san);
+    return { fen: c.fen(), from: m.from, to: m.to };
   }, [pick]);
+  useEffect(() => {
+    if (!pick || !after) return;
+    setFen(pick.demo.fen);
+    const t = window.setTimeout(() => setFen(after.fen), 450);
+    return () => clearTimeout(t);
+  }, [pick, after]);
+  const chips = (demos: Demo[]) => (
+    <div className="finishers">
+      {demos.map((d) => (
+        <button
+          key={d.label + d.desc}
+          className={`finisher-chip${pick?.demo === d ? ' on' : ''}`}
+          style={{ ['--fc' as string]: d.finisher ? FINISHERS[d.finisher].color : '#facc15' }}
+          onClick={() => setPick({ demo: d, n: (pick?.n ?? 0) + 1 })}
+        >
+          <span>{d.icon}</span>
+          <b>{d.label}</b>
+          <small>{d.desc}</small>
+        </button>
+      ))}
+    </div>
+  );
+  const stage = (demos: Demo[]) =>
+    pick && after && demos.includes(pick.demo) && fen && (
+      <div className="finisher-stage">
+        <Board
+          key={pick.n}
+          fen={fen}
+          orientation="w"
+          theme={theme}
+          finisher={pick.demo.finisher}
+          lastMove={fen === after.fen ? [after.from, after.to] : null}
+          celebrate={pick.demo.celebrate && fen === after.fen ? { square: after.to, text: 'BRILLIANT!!', key: pick.n } : null}
+        />
+      </div>
+    );
   return (
     <>
-      <div className="finishers">
-        {(Object.keys(FINISHERS) as FinisherId[]).map((id) => (
-          <button key={id} className={`finisher-chip${pick?.id === id ? ' on' : ''}`} style={{ ['--fc' as string]: FINISHERS[id].color }} onClick={() => setPick({ id, n: (pick?.n ?? 0) + 1 })}>
-            <span>{FINISHERS[id].icon}</span>
-            <b>{FINISHERS[id].name}</b>
-            <small>{FINISHERS[id].tagline}</small>
-          </button>
-        ))}
-      </div>
-      {pick && (
-        <div className="finisher-stage">
-          <Board key={pick.n} fen={fen} orientation="w" theme={theme} finisher={pick.id} lastMove={fen === MATE ? ['d1', 'd8'] : null} />
-        </div>
-      )}
+      <h2 className="section-title">Signature attacks</h2>
+      <p className="muted small">Every piece fights in its own style, and brilliant moves get a victory flourish. Tap one to watch it.</p>
+      {chips(ATTACK_DEMOS)}
+      {stage(ATTACK_DEMOS)}
+      <h2 className="section-title">Finisher gallery</h2>
+      <p className="muted small">Every opening family ends with its own checkmate finisher. Tap one to preview it.</p>
+      {chips(FINISHER_DEMOS)}
+      {stage(FINISHER_DEMOS)}
     </>
   );
 }
@@ -99,9 +159,7 @@ export default function Profile() {
         })}
       </div>
 
-      <h2 className="section-title">Finisher gallery</h2>
-      <p className="muted small">Every opening family ends with its own checkmate finisher. Tap one to preview it.</p>
-      <FinisherGallery theme={p.theme} />
+      <CombatGallery theme={p.theme} />
 
       <h2 className="section-title">Settings</h2>
       <div className="card settings">

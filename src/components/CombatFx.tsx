@@ -18,7 +18,7 @@ export interface Impact {
 export function ImpactFx({ fx }: { fx: Impact }) {
   const sparks = useMemo(() => Array.from({ length: 8 + fx.power * 3 }, () => ({ a: rand(0, 360), d: rand(40, 80 + fx.power * 30), s: rand(4, 9) })), [fx]);
   return (
-    <div className={`fx-impact p${fx.power}`} style={{ left: pct(fx.x), top: pct(fx.y), ['--c' as string]: fx.color }}>
+    <div className={`fx-impact p${fx.power}`} style={{ left: pct(fx.x), top: pct(fx.y), ['--c' as string]: fx.color, ['--tx' as string]: fx.x < 2 ? '-22%' : fx.x > 5 ? '-78%' : '-50%' }}>
       <div className="fx-burst" />
       <div className="fx-ring" />
       {sparks.map((s, i) => (
@@ -29,8 +29,62 @@ export function ImpactFx({ fx }: { fx: Impact }) {
   );
 }
 
-export function CallOut({ x, y, text, kind }: { x: number; y: number; text: string; kind: 'check' | 'combo' }) {
-  return <div className={`fx-callout ${kind}`} style={{ left: pct(x), top: pct(y) }}>{text}</div>;
+export function CallOut({ x, y, text, kind }: { x: number; y: number; text: string; kind: 'check' | 'combo' | 'brilliant' }) {
+  // Clamped so long call-outs near the edge stay on the board.
+  return <div className={`fx-callout ${kind}`} style={{ left: `clamp(24%, ${pct(x)}, 76%)`, top: `max(19%, ${pct(y)})` }}>{text}</div>;
+}
+
+export type ShotKind = 'gun' | 'cannon' | 'beam';
+
+export interface Shot {
+  id: number;
+  kind: ShotKind;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+/** Ranged signature attacks: the bishop draws a pistol, the rook fires a cannon, the queen charges a beam. */
+export function ShotFx({ fx }: { fx: Shot }) {
+  const dx = fx.x2 - fx.x1;
+  const dy = fx.y2 - fx.y1;
+  const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const style = {
+    left: pct(fx.x1),
+    top: pct(fx.y1),
+    transform: `rotate(${ang}deg)`,
+    ['--len' as string]: `${Math.hypot(dx, dy) * 12.5}cqw`,
+    ['--flip' as string]: Math.abs(ang) > 90 ? -1 : 1,
+  } as CSSProperties;
+  return (
+    <div className={`shot shot-${fx.kind}`} style={style}>
+      {fx.kind === 'gun' && (
+        <>
+          <svg className="gun" viewBox="0 0 64 40">
+            <path d="M14 6h46a3 3 0 0 1 3 3v6a2 2 0 0 1-2 2H30l-2 4h-6l-2 17H8l4-21-2-1V9a3 3 0 0 1 4-3z" fill="#1f2937" stroke="#9ca3af" strokeWidth="1.5" />
+            <path d="M22 21h6l-1 6h-7" fill="none" stroke="#9ca3af" strokeWidth="1.5" />
+            <rect x="16" y="8" width="44" height="2.5" fill="#6b7280" />
+          </svg>
+          <i className="muzzle" />
+          <i className="bullet" />
+        </>
+      )}
+      {fx.kind === 'cannon' && (
+        <>
+          <i className="barrel" />
+          <i className="smoke" />
+          <i className="ball" />
+        </>
+      )}
+      {fx.kind === 'beam' && (
+        <>
+          <i className="charge" />
+          <i className="beam" />
+        </>
+      )}
+    </div>
+  );
 }
 
 export function Announce({ text }: { text: string }) {

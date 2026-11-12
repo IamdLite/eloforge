@@ -302,13 +302,32 @@ function thud(freq: number, start: number, dur: number, gain: number) {
   o.stop(t0 + dur);
 }
 
-export type CombatSound = 'whoosh' | 'hit' | 'heavy' | 'finisher';
+function sweep(from: number, to: number, start: number, dur: number, gain: number, type: OscillatorType = 'sawtooth') {
+  if (!audio) return;
+  const o = audio.createOscillator();
+  const g = audio.createGain();
+  const t0 = audio.currentTime + start;
+  o.type = type;
+  o.frequency.setValueAtTime(from, t0);
+  o.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+  g.gain.setValueAtTime(gain, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(audio.destination);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+
+export type CombatSound = 'whoosh' | 'hit' | 'heavy' | 'finisher' | 'shot' | 'boom' | 'zap' | 'brilliant';
 
 /** Punchy fighting-game sounds built from filtered noise and pitch-dropping thuds. */
 export function combatSfx(kind: CombatSound) {
   ensureAudio();
   if (kind === 'whoosh') noise(0, 0.18, 0.05, 3000, 300);
   else if (kind === 'hit') { noise(0.12, 0.12, 0.16, 2500, 200); thud(160, 0.12, 0.18, 0.18); }
+  else if (kind === 'shot') { noise(0, 0.08, 0.35, 9000, 1500); thud(320, 0, 0.08, 0.2); noise(0.07, 0.3, 0.05, 2500, 200); }
+  else if (kind === 'boom') { noise(0, 0.7, 0.32, 1400, 50); thud(95, 0, 0.6, 0.35); }
+  else if (kind === 'zap') { sweep(180, 1600, 0, 0.35, 0.04, 'sine'); sweep(2400, 300, 0.36, 0.22, 0.05); }
+  else if (kind === 'brilliant') { noise(0, 0.3, 0.05, 3000, 400); [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.15 + i * 0.08, 0.3, 0.06)); }
   else if (kind === 'heavy') { noise(0.12, 0.35, 0.22, 4000, 120); thud(120, 0.12, 0.4, 0.28); thud(70, 0.2, 0.5, 0.2); }
   else {
     noise(0, 1.4, 0.12, 6000, 80);

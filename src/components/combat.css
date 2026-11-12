@@ -20,7 +20,7 @@
   70% { transform: scale(1.38) rotate(10deg); }
   100% { transform: none; }
 }
-.piece.ko { z-index: 5; animation: ko 0.8s cubic-bezier(0.2, 0.6, 0.4, 1) 0.2s forwards; }
+.piece.ko { z-index: 5; animation: ko 0.8s cubic-bezier(0.2, 0.6, 0.4, 1) forwards; }
 @keyframes ko {
   0% { filter: brightness(3) sepia(1) saturate(9) hue-rotate(-35deg); transform: none; }
   18% { filter: brightness(2) sepia(1) saturate(9) hue-rotate(-35deg); transform: translate(calc(var(--dx) * 25%), calc(var(--dy) * 25%)) rotate(45deg) scale(1.15); }
@@ -28,6 +28,92 @@
 }
 .piece.checked { animation: checkpulse 0.5s ease-in-out 3; }
 @keyframes checkpulse { 50% { transform: scale(1.18); filter: drop-shadow(0 0 1.4cqw #ef4444); } }
+
+/* melee signature moves */
+.board .piece.hop { transition-duration: 0.32s; animation: hop 0.32s ease-out; z-index: 6; }
+@keyframes hop { 50% { transform: translateY(-28%) scale(1.12); } }
+/* knight: somersault onto the target */
+.board .piece.salto { z-index: 6; transition-duration: 0.45s; transition-timing-function: ease-in-out; animation: salto 0.45s ease-in-out; filter: drop-shadow(0 0 1cqw rgba(255, 255, 255, 0.8)); }
+@keyframes salto {
+  0% { transform: none; }
+  50% { transform: translateY(-60%) rotate(-200deg) scale(1.3); }
+  85% { transform: translateY(0) rotate(-360deg) scale(1.15, 0.8); }
+  100% { transform: rotate(-360deg); }
+}
+/* king: leap and ground-pound */
+.board .piece.slam { z-index: 6; transition-duration: 0.4s; animation: slam-k 0.42s cubic-bezier(0.5, 0, 0.7, 1); }
+@keyframes slam-k {
+  0% { transform: none; }
+  50% { transform: translateY(-75%) scale(1.5); }
+  85% { transform: translateY(0) scale(1.35, 0.7); }
+  100% { transform: none; }
+}
+
+/* brilliant-move celebrations */
+.board .piece.flourish-n { z-index: 7; animation: triple-salto 1.3s cubic-bezier(0.3, 0.1, 0.3, 1); filter: drop-shadow(0 0 1.5cqw #facc15); }
+@keyframes triple-salto {
+  0% { transform: none; }
+  14% { transform: translateY(6%) scale(1.15, 0.8); }
+  62% { transform: translateY(-120%) rotate(-1080deg) scale(1.35); }
+  84% { transform: translateY(0) rotate(-1080deg) scale(1.2, 0.78); }
+  100% { transform: rotate(-1080deg); }
+}
+.board .piece.flourish { z-index: 7; animation: flourish 1s cubic-bezier(0.3, 0.1, 0.3, 1); filter: drop-shadow(0 0 1.5cqw #facc15); }
+@keyframes flourish {
+  0% { transform: none; }
+  15% { transform: translateY(5%) scale(1.1, 0.85); }
+  45% { transform: translateY(-55%) rotate(200deg) scale(1.3); }
+  75% { transform: translateY(0) rotate(360deg) scale(1.15, 0.82); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ranged signature moves; the .shot box is rotated so +x points at the target */
+.shot { position: absolute; width: 0; height: 0; z-index: 2; }
+.gun { position: absolute; left: 3cqw; top: -1.9cqw; width: 11cqw; height: 6.9cqw; overflow: visible; transform-origin: 0 27%; filter: drop-shadow(0 0.4cqw 0.4cqw rgba(0, 0, 0, 0.6)); animation: gun 0.8s both; }
+@keyframes gun {
+  0% { transform: scaleY(var(--flip)) rotate(100deg) scale(0); opacity: 0; }
+  12% { opacity: 1; }
+  32% { transform: scaleY(var(--flip)) rotate(-8deg) scale(1.1); }
+  40%, 52% { transform: scaleY(var(--flip)) rotate(0) scale(1); }
+  56% { transform: scaleY(var(--flip)) translateX(-1.4cqw) rotate(-22deg) scale(1); }
+  70% { transform: scaleY(var(--flip)) rotate(0) scale(1); opacity: 1; }
+  100% { transform: scaleY(var(--flip)) rotate(-300deg) scale(0); opacity: 0; }
+}
+.muzzle { position: absolute; left: 11.5cqw; top: -3cqw; width: 6cqw; height: 6cqw; border-radius: 50%; background: radial-gradient(circle, #fff 0%, #fde047 28%, #f97316 50%, transparent 70%); opacity: 0; animation: muzzle 0.8s both; }
+@keyframes muzzle { 0%, 51% { opacity: 0; transform: scale(0.2); } 54% { opacity: 1; transform: scale(1.3); } 64%, 100% { opacity: 0; transform: scale(1.6); } }
+.bullet { position: absolute; left: 13.5cqw; top: -0.45cqw; width: 4.5cqw; height: 0.9cqw; border-radius: 1cqw; background: linear-gradient(90deg, transparent, #fde047 60%, #fff); box-shadow: 0 0 1cqw #fde047; opacity: 0; animation: bullet 0.8s linear both; }
+@keyframes bullet {
+  0%, 52% { opacity: 0; transform: translateX(0); }
+  53% { opacity: 1; }
+  68% { opacity: 1; transform: translateX(calc(var(--len) - 18cqw)); }
+  70%, 100% { opacity: 0; transform: translateX(calc(var(--len) - 18cqw)); }
+}
+.barrel { position: absolute; left: 0; top: -1.6cqw; width: 8.5cqw; height: 3.2cqw; border-radius: 0.6cqw 1.2cqw 1.2cqw 0.6cqw; background: linear-gradient(180deg, #78716c, #1c1917 55%, #44403c); border: 0.3cqw solid #0c0a09; transform-origin: 0 50%; animation: barrel 0.8s both; }
+@keyframes barrel {
+  0% { transform: scaleX(0); }
+  30%, 52% { transform: scaleX(1); }
+  56% { transform: translateX(-1.6cqw) scaleX(1); }
+  66%, 85% { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(0); opacity: 0; }
+}
+.smoke { position: absolute; left: 7cqw; top: -4cqw; width: 8cqw; height: 8cqw; border-radius: 50%; background: radial-gradient(circle, rgba(231, 229, 228, 0.95), rgba(168, 162, 158, 0.6) 45%, transparent 70%); opacity: 0; animation: smoke 0.8s ease-out both; }
+@keyframes smoke { 0%, 52% { opacity: 0; transform: scale(0.2); } 56% { opacity: 1; } 100% { opacity: 0; transform: scale(2) translateY(-3cqw); } }
+.ball { position: absolute; left: 6.5cqw; top: -1.5cqw; width: 3cqw; height: 3cqw; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #a8a29e, #0c0a09 70%); box-shadow: 0 0 1.2cqw #f97316; opacity: 0; animation: ball 0.8s linear both; }
+@keyframes ball {
+  0%, 52% { opacity: 0; transform: translateX(0); }
+  53% { opacity: 1; }
+  68% { opacity: 1; transform: translateX(calc(var(--len) - 8cqw)); }
+  70%, 100% { opacity: 0; transform: translateX(calc(var(--len) - 8cqw)); }
+}
+.charge { position: absolute; left: -6cqw; top: -6cqw; width: 12cqw; height: 12cqw; border-radius: 50%; background: radial-gradient(circle, #fff 0%, #f0abfc 30%, #c026d3 55%, transparent 70%); animation: charge 0.8s both; }
+@keyframes charge { 0% { opacity: 0; transform: scale(0); } 48% { opacity: 1; transform: scale(1.25) rotate(180deg); } 58% { transform: scale(0.7); } 80%, 100% { opacity: 0; transform: scale(0.4); } }
+.beam { position: absolute; left: 0; top: -1.8cqw; width: var(--len); height: 3.6cqw; border-radius: 2cqw; background: linear-gradient(180deg, transparent, #f0abfc 22%, #fff 50%, #f0abfc 78%, transparent); box-shadow: 0 0 3cqw #d946ef; transform-origin: 0 50%; animation: beam 0.8s both; }
+@keyframes beam {
+  0%, 52% { transform: scaleX(0); opacity: 1; }
+  60% { transform: scaleX(1); }
+  76% { transform: scaleX(1) scaleY(1.2); opacity: 1; }
+  92%, 100% { transform: scaleX(1) scaleY(0.05); opacity: 0; }
+}
 
 /* screen shake */
 .board.shake1 { animation: shake 0.28s linear; }
@@ -45,12 +131,12 @@
 
 /* impact */
 .fx-impact { position: absolute; width: 0; height: 0; }
-.fx-burst { position: absolute; left: -7cqw; top: -7cqw; width: 14cqw; height: 14cqw; border-radius: 50%; background: radial-gradient(circle, #fff 0%, var(--c) 35%, transparent 70%); animation: burst 0.45s ease-out 0.2s both; }
+.fx-burst { position: absolute; left: -7cqw; top: -7cqw; width: 14cqw; height: 14cqw; border-radius: 50%; background: radial-gradient(circle, #fff 0%, var(--c) 35%, transparent 70%); animation: burst 0.45s ease-out both; }
 .p3 .fx-burst, .p4 .fx-burst { left: -11cqw; top: -11cqw; width: 22cqw; height: 22cqw; }
 @keyframes burst { from { transform: scale(0.1); opacity: 1; } to { transform: scale(1.3); opacity: 0; } }
-.fx-ring { position: absolute; left: -6cqw; top: -6cqw; width: 12cqw; height: 12cqw; border-radius: 50%; border: 0.7cqw solid var(--c); animation: ring 0.5s ease-out 0.22s both; }
+.fx-ring { position: absolute; left: -6cqw; top: -6cqw; width: 12cqw; height: 12cqw; border-radius: 50%; border: 0.7cqw solid var(--c); animation: ring 0.5s ease-out 0.02s both; }
 @keyframes ring { from { transform: scale(0.2); opacity: 1; } to { transform: scale(2.2); opacity: 0; } }
-.fx-spark { position: absolute; left: 0; top: 0; border-radius: 2px; background: #fff; box-shadow: 0 0 6px var(--c), 0 0 2px #fff; animation: spark 0.55s ease-out 0.2s both; }
+.fx-spark { position: absolute; left: 0; top: 0; border-radius: 2px; background: #fff; box-shadow: 0 0 6px var(--c), 0 0 2px #fff; animation: spark 0.55s ease-out both; }
 @keyframes spark {
   from { transform: rotate(var(--a)) translateX(0) scale(1.2); opacity: 1; }
   to { transform: rotate(var(--a)) translateX(var(--d)) scale(0.2); opacity: 0; }
@@ -60,17 +146,19 @@
   font-weight: 900; font-style: italic; font-size: 6.2cqw; letter-spacing: 0.04em; color: #fff;
   -webkit-text-stroke: 0.35cqw #000; paint-order: stroke fill;
   text-shadow: 0 0 1.5cqw var(--c, #ef4444), 0.4cqw 0.4cqw 0 #7f1d1d;
-  animation: callout 1s cubic-bezier(0.2, 1.6, 0.4, 1) 0.2s both;
+  animation: callout 1s cubic-bezier(0.2, 1.6, 0.4, 1) both;
 }
 .p4 .fx-text { font-size: 8cqw; color: #fde047; }
 .fx-callout { margin-left: 0; animation-delay: 0.05s; }
 .fx-callout.check { color: #fecaca; --c: #ef4444; }
 .fx-callout.combo { color: #fde047; --c: #f59e0b; top: -15cqw; }
+.fx-callout.brilliant { font-size: 8.5cqw; color: #fef08a; --c: #facc15; -webkit-text-stroke-color: #713f12; text-shadow: 0 0 2cqw #facc15, 0.5cqw 0.5cqw 0 #713f12; animation-duration: 1.8s; }
+.fx-callout { margin-top: -6cqw; }
 @keyframes callout {
-  0% { transform: translateX(-50%) scale(2.6); opacity: 0; }
-  25% { transform: translateX(-50%) scale(1); opacity: 1; }
-  75% { transform: translateX(-50%) translateY(-1cqw) scale(1); opacity: 1; }
-  100% { transform: translateX(-50%) translateY(-4cqw) scale(0.9); opacity: 0; }
+  0% { transform: translateX(var(--tx, -50%)) scale(2.6); opacity: 0; }
+  25% { transform: translateX(var(--tx, -50%)) scale(1); opacity: 1; }
+  75% { transform: translateX(var(--tx, -50%)) translateY(-1cqw) scale(1); opacity: 1; }
+  100% { transform: translateX(var(--tx, -50%)) translateY(-4cqw) scale(0.9); opacity: 0; }
 }
 
 /* round announcer */
