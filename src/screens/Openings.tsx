@@ -4,6 +4,7 @@ import { OPENINGS, openingById } from '../data/openings';
 import { TIERS } from '../lib/levels';
 import { MASTERED, useProgress, type Progress } from '../lib/store';
 import { buildTree, lineId, type OpeningDef } from '../lib/tree';
+import { FINISHERS, finisherFor } from '../lib/finishers';
 
 export function openingMastery(p: Progress, o: OpeningDef) {
   const paths = buildTree(o).paths;
@@ -76,6 +77,10 @@ export function OpeningDetail({ id }: { id: string }) {
         <p>{o.summary}</p>
         <ul className="ideas">{o.ideas.map((i) => <li key={i}>{i}</li>)}</ul>
         {o.inspiredBy && <p className="inspired">⭐ {o.inspiredBy}</p>}
+        {(() => {
+          const f = FINISHERS[finisherFor(o.id)];
+          return <p className="finisher-tag" style={{ color: f.color }}>{f.icon} Signature finisher: <b>{f.name}</b></p>;
+        })()}
         <ProgressBar value={m.mastered} max={m.total} color={t.color} />
         <small className="muted">{m.mastered}/{m.total} lines mastered (3 clean repetitions each, spaced over days)</small>
         <div className="row gap">

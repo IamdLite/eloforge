@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Chess, type Color } from 'chess.js';
 import { useNav } from '../App';
+import { finisherFor } from '../lib/finishers';
 import Board, { ARROW, type BoardMove } from '../components/Board';
 import { CoachFeed, EvalBar, HintBar, OverlayBar, nextFeedId, useOverlay, useSfx, type FeedItem } from '../components/ui';
 import { ENDGAMES } from '../data/endgames';
@@ -210,7 +211,7 @@ export default function EndgameTrainer({ id }: { id: string }) {
 
       <div className="board-row">
         {(phase === 'practice' || phase === 'demo') && <EvalBar cp={evalCp} orientation={user} />}
-        <Board fen={fen} orientation={user} interactive={phase === 'practice' && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} />
+        <Board fen={fen} orientation={user} interactive={phase === 'practice' && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} finisher={finisherFor(null, eg.id)} />
       </div>
 
       {phase === 'lesson' && (

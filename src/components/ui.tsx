@@ -268,6 +268,56 @@ export function sfx(kind: 'move' | 'capture' | 'good' | 'bad') {
   else { tone(196, 0, 0.25, 0.07); }
 }
 
+function noise(start: number, dur: number, gain: number, from: number, to: number) {
+  if (!audio) return;
+  const len = Math.ceil(audio.sampleRate * dur);
+  const buf = audio.createBuffer(1, len, audio.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = audio.createBufferSource();
+  src.buffer = buf;
+  const f = audio.createBiquadFilter();
+  f.type = 'lowpass';
+  const t0 = audio.currentTime + start;
+  f.frequency.setValueAtTime(from, t0);
+  f.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+  const g = audio.createGain();
+  g.gain.setValueAtTime(gain, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(f).connect(g).connect(audio.destination);
+  src.start(t0);
+}
+
+function thud(freq: number, start: number, dur: number, gain: number) {
+  if (!audio) return;
+  const o = audio.createOscillator();
+  const g = audio.createGain();
+  const t0 = audio.currentTime + start;
+  o.frequency.setValueAtTime(freq, t0);
+  o.frequency.exponentialRampToValueAtTime(freq / 4, t0 + dur);
+  g.gain.setValueAtTime(gain, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(audio.destination);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+
+export type CombatSound = 'whoosh' | 'hit' | 'heavy' | 'finisher';
+
+/** Punchy fighting-game sounds built from filtered noise and pitch-dropping thuds. */
+export function combatSfx(kind: CombatSound) {
+  ensureAudio();
+  if (kind === 'whoosh') noise(0, 0.18, 0.05, 3000, 300);
+  else if (kind === 'hit') { noise(0.12, 0.12, 0.16, 2500, 200); thud(160, 0.12, 0.18, 0.18); }
+  else if (kind === 'heavy') { noise(0.12, 0.35, 0.22, 4000, 120); thud(120, 0.12, 0.4, 0.28); thud(70, 0.2, 0.5, 0.2); }
+  else {
+    noise(0, 1.4, 0.12, 6000, 80);
+    thud(90, 0.05, 1.2, 0.3);
+    thud(55, 0.8, 1.2, 0.3);
+    [392, 311, 233, 196].forEach((f, i) => tone(f, 1.7 + i * 0.12, 0.5, 0.06));
+  }
+}
+
 export function useSfx() {
   const p = useProgress();
   return (k: 'move' | 'capture' | 'good' | 'bad') => p.settings.sound && sfx(k);

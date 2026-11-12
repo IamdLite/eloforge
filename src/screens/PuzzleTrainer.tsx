@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import { useNav } from '../App';
+import { finisherFor } from '../lib/finishers';
 import Board, { ARROW, type BoardMove } from '../components/Board';
 import { CoachFeed, HintBar, OverlayBar, nextFeedId, useOverlay, useSfx, type FeedItem } from '../components/ui';
 import { THEME_INFO, puzzleById, type Puzzle } from '../data/puzzles';
@@ -145,7 +146,7 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
         <div className="pill">{showThemes || status !== 'play' ? puzzle.rating : '????'}</div>
       </div>
 
-      <Board fen={fen} orientation={orientation} interactive={status === 'play'} onMove={onMove} arrows={[...(status === 'play' ? [] : overlay.arrows), ...arrows]} markers={status === 'play' ? [] : overlay.markers} lastMove={lastMove} theme={p.theme} flash={flash} />
+      <Board fen={fen} orientation={orientation} interactive={status === 'play'} onMove={onMove} arrows={[...(status === 'play' ? [] : overlay.arrows), ...arrows]} markers={status === 'play' ? [] : overlay.markers} lastMove={lastMove} theme={p.theme} flash={flash} finisher={finisherFor(null, puzzle.id)} />
 
       {showThemes && (
         <div className="tags">

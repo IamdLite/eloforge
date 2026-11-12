@@ -38,7 +38,7 @@ export interface Progress {
   mates: number;
   games: { played: number; won: number };
   rewards: Reward[];
-  settings: { overlays: OverlayOptions; coach: boolean; sound: boolean };
+  settings: { overlays: OverlayOptions; coach: boolean; sound: boolean; fx?: boolean };
 }
 
 const KEY = 'eloforge-progress-v1';
@@ -65,7 +65,7 @@ const fresh = (): Progress => ({
   mates: 0,
   games: { played: 0, won: 0 },
   rewards: [],
-  settings: { overlays: { pawns: false, hanging: true, outposts: false, king: false }, coach: true, sound: true },
+  settings: { overlays: { pawns: false, hanging: true, outposts: false, king: false }, coach: true, sound: true, fx: true },
 });
 
 function load(): Progress {
@@ -284,7 +284,7 @@ export const actions = {
       p.settings.overlays[k] = v;
     });
   },
-  setSetting(k: 'coach' | 'sound', v: boolean) {
+  setSetting(k: 'coach' | 'sound' | 'fx', v: boolean) {
     update((p) => {
       p.settings[k] = v;
     });

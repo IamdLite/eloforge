@@ -7,6 +7,33 @@ import { classify, describeMove, VERDICT_LABEL, type Verdict } from '../lib/comm
 import { engine, whiteCp, winPct, type EngineLine } from '../lib/engine';
 import { NAME, formatLine, hangingPieces, pvToSan, uciToMove, type Arrow } from '../lib/analysis';
 import { START_FEN } from '../lib/tree';
+import { detectOpening, finisherFor } from '../lib/finishers';
+
+const MATERIAL: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+const material = (c: Chess, color: Color) => c.board().flat().reduce((n, x) => n + (x && x.color === color ? MATERIAL[x.type] : 0), 0);
+
+/** Fighting-game health bars: each side's material out of the starting 39. */
+function HealthBars({ chess, user, elo }: { chess: Chess; user: Color; elo: number }) {
+  const bar = (color: Color, name: string, right: boolean) => {
+    const hp = Math.min(100, (material(chess, color) / 39) * 100);
+    return (
+      <div className={`hp${right ? ' right' : ''}`}>
+        <span className="hp-name">{name}</span>
+        <div className="hp-track">
+          <div className="hp-lag" style={{ width: `${hp}%` }} />
+          <div className={`hp-fill${hp < 30 ? ' low' : ''}`} style={{ width: `${hp}%` }} />
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div className="hpbars">
+      {bar(user, 'YOU', false)}
+      <span className="hp-vs">VS</span>
+      {bar(user === 'w' ? 'b' : 'w', `BOT ${elo}`, true)}
+    </div>
+  );
+}
 
 const BOT_LEVELS = [800, 1000, 1200, 1400, 1600, 1800, 2000, 2200];
 const lineScore = (l: EngineLine) => (l.mate !== undefined ? Math.sign(l.mate || -1) * (10000 - Math.abs(l.mate) * 10) : l.cp ?? 0);
@@ -40,7 +67,7 @@ async function botMove(fen: string, elo: number): Promise<string> {
   return ls[0].uci;
 }
 
-export default function Play({ startFen, startSide }: { startFen?: string; startSide?: 'w' | 'b' }) {
+export default function Play({ startFen, startSide, opening }: { startFen?: string; startSide?: 'w' | 'b'; opening?: string }) {
   const p = useProgress();
   const sfx = useSfx();
   const suggested = BOT_LEVELS.reduce((a, b) => (Math.abs(b - (p.puzzleRating + 100)) < Math.abs(a - (p.puzzleRating + 100)) ? b : a));
@@ -63,14 +90,17 @@ export default function Play({ startFen, startSide }: { startFen?: string; start
   const [takebacks, setTakebacks] = useState(0);
   const gameId = useRef(0);
 
+  const [round, setRound] = useState(0);
   const fen = fens[fens.length - 1];
   const chess = new Chess(fen);
+  const finisher = finisherFor(opening ?? (startFen ? null : detectOpening(plies.map((x) => x.san))), String(round));
   const overlay = useOverlay(fen);
   const push = (it: Omit<FeedItem, 'id'>) => setFeed((f) => [...f, { ...it, id: nextFeedId() }]);
 
   const start = () => {
     const u: Color = side === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : side;
     gameId.current++;
+    setRound((r) => r + 1);
     setUser(u);
     setFens([startFen ?? START_FEN]);
     setPlies([]);
@@ -255,9 +285,10 @@ export default function Play({ startFen, startSide }: { startFen?: string; start
         {accuracy !== null && <div className="pill">🎯 {accuracy}%</div>}
       </div>
 
+      {p.settings.fx !== false && <HealthBars chess={chess} user={user} elo={elo} />}
       <div className="board-row">
         {showEval && <EvalBar cp={evalCp} orientation={user} />}
-        <Board fen={fen} orientation={user} interactive={myTurn && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} />
+        <Board fen={fen} orientation={user} interactive={myTurn && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} finisher={finisher} announce={{ text: 'FIGHT!', key: round }} />
       </div>
 
       <div className="movelist plies">

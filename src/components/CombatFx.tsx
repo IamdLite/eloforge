@@ -1,0 +1,167 @@
+// Fighting-game style board effects: impact bursts on captures, call-outs, and checkmate finishers.
+import { useMemo, type CSSProperties } from 'react';
+import { FINISHERS, type FinisherId } from '../lib/finishers';
+import './combat.css';
+
+const pct = (n: number) => `${(n + 0.5) * 12.5}%`;
+const rand = (a: number, b: number) => a + Math.random() * (b - a);
+
+export interface Impact {
+  id: number;
+  x: number;
+  y: number;
+  power: number; // 1 pawn … 4 queen
+  text: string;
+  color: string;
+}
+
+export function ImpactFx({ fx }: { fx: Impact }) {
+  const sparks = useMemo(() => Array.from({ length: 8 + fx.power * 3 }, () => ({ a: rand(0, 360), d: rand(40, 80 + fx.power * 30), s: rand(4, 9) })), [fx]);
+  return (
+    <div className={`fx-impact p${fx.power}`} style={{ left: pct(fx.x), top: pct(fx.y), ['--c' as string]: fx.color }}>
+      <div className="fx-burst" />
+      <div className="fx-ring" />
+      {sparks.map((s, i) => (
+        <i key={i} className="fx-spark" style={{ ['--a' as string]: `${s.a}deg`, ['--d' as string]: `${s.d}px`, width: s.s, height: s.s }} />
+      ))}
+      {fx.text && <div className="fx-text">{fx.text}</div>}
+    </div>
+  );
+}
+
+export function CallOut({ x, y, text, kind }: { x: number; y: number; text: string; kind: 'check' | 'combo' }) {
+  return <div className={`fx-callout ${kind}`} style={{ left: pct(x), top: pct(y) }}>{text}</div>;
+}
+
+export function Announce({ text }: { text: string }) {
+  return (
+    <div className="fx-announce">
+      <span>{text}</span>
+    </div>
+  );
+}
+
+interface FinisherProps {
+  id: FinisherId;
+  x: number;
+  y: number;
+  kingImg: string;
+  /** true when the side at the bottom of the board got mated */
+  defeated: boolean;
+}
+
+export function FinisherFx({ id, x, y, kingImg, defeated }: FinisherProps) {
+  const f = FINISHERS[id];
+  const style = { ['--kx' as string]: pct(x), ['--ky' as string]: pct(y), ['--fc' as string]: f.color } as CSSProperties;
+  const parts = useMemo(() => ({
+    flames: Array.from({ length: 18 }, () => ({ dx: rand(-60, 60), delay: rand(0.2, 1.4), s: rand(26, 60), dur: rand(0.7, 1.3) })),
+    ash: Array.from({ length: 22 }, () => ({ dx: rand(-50, 50), dy: rand(-90, -20), delay: rand(1.2, 1.8) })),
+    shards: Array.from({ length: 12 }, (_, i) => {
+      const a = (i / 12) * Math.PI * 2;
+      const b = ((i + 1) / 12) * Math.PI * 2;
+      return {
+        clip: `polygon(50% 50%, ${50 + 70 * Math.cos(a)}% ${50 + 70 * Math.sin(a)}%, ${50 + 70 * Math.cos(b)}% ${50 + 70 * Math.sin(b)}%)`,
+        tx: Math.cos((a + b) / 2) * rand(90, 170),
+        ty: Math.sin((a + b) / 2) * rand(90, 170) + 40,
+        r: rand(-300, 300),
+      };
+    }),
+    bubbles: Array.from({ length: 16 }, () => ({ dx: rand(-45, 45), delay: rand(0.2, 1.6), s: rand(8, 22) })),
+    debris: Array.from({ length: 16 }, () => ({ a: rand(0, 360), d: rand(60, 160), r: rand(-400, 400) })),
+    cracks: Array.from({ length: 7 }, (_, i) => {
+      let px = 0, py = 0;
+      const ang = (i / 7) * Math.PI * 2 + rand(-0.3, 0.3);
+      const pts = ['0,0'];
+      for (let k = 1; k <= 5; k++) {
+        px = Math.cos(ang) * k * 60 + rand(-14, 14);
+        py = Math.sin(ang) * k * 60 + rand(-14, 14);
+        pts.push(`${px.toFixed(0)},${py.toFixed(0)}`);
+      }
+      return pts.join(' ');
+    }),
+    bolts: Array.from({ length: 3 }, (_, i) => {
+      const startX = rand(-120, 120);
+      const pts = [`${startX},-900`];
+      for (let k = 1; k < 7; k++) pts.push(`${(startX * (1 - k / 7) + rand(-35, 35)).toFixed(0)},${(-900 + k * 128).toFixed(0)}`);
+      pts.push('0,0');
+      return { pts: pts.join(' '), delay: 0.25 + i * 0.28 };
+    }),
+  }), []);
+
+  return (
+    <div className={`fin fin-${id}`} style={style}>
+      <div className="fin-dim" />
+
+      {id === 'inferno' && (
+        <div className="fin-at">
+          {parts.flames.map((p, i) => <i key={i} className="flame" style={{ ['--dx' as string]: `${p.dx}px`, animationDelay: `${p.delay}s`, animationDuration: `${p.dur}s`, width: p.s, height: p.s * 1.5 }} />)}
+          {parts.ash.map((p, i) => <i key={'a' + i} className="ash" style={{ ['--dx' as string]: `${p.dx}px`, ['--dy' as string]: `${p.dy}px`, animationDelay: `${p.delay}s` }} />)}
+        </div>
+      )}
+
+      {id === 'glacier' && (
+        <>
+          <div className="frost" />
+          <div className="fin-at">
+            {parts.shards.map((s, i) => (
+              <img key={i} src={kingImg} className="shard" alt="" style={{ clipPath: s.clip, ['--tx' as string]: `${s.tx}px`, ['--ty' as string]: `${s.ty}px`, ['--r' as string]: `${s.r}deg` }} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {id === 'thunder' && (
+        <>
+          <div className="flashes" />
+          <svg className="fin-at bolts" viewBox="-200 -900 400 920" preserveAspectRatio="none">
+            {parts.bolts.map((b, i) => <polyline key={i} points={b.pts} style={{ animationDelay: `${b.delay}s` }} />)}
+          </svg>
+          <div className="fin-at"><i className="zap-glow" /></div>
+        </>
+      )}
+
+      {id === 'vortex' && (
+        <div className="fin-at"><i className="vortex" /><i className="vortex v2" /></div>
+      )}
+
+      {id === 'blade' && (
+        <>
+          <div className="fin-at">
+            <i className="slash s1" />
+            <i className="slash s2" />
+            <img src={kingImg} className="half left" alt="" />
+            <img src={kingImg} className="half right" alt="" />
+          </div>
+          <div className="red-flash" />
+        </>
+      )}
+
+      {id === 'meteor' && (
+        <div className="fin-at">
+          <i className="meteor" />
+          <i className="boom" />
+          <i className="crater" />
+          {parts.debris.map((d, i) => <i key={i} className="debris" style={{ ['--a' as string]: `${d.a}deg`, ['--d' as string]: `${d.d}px`, ['--r' as string]: `${d.r}deg` }} />)}
+        </div>
+      )}
+
+      {id === 'venom' && (
+        <div className="fin-at">
+          <i className="puddle" />
+          {parts.bubbles.map((b, i) => <i key={i} className="bubble" style={{ ['--dx' as string]: `${b.dx}px`, animationDelay: `${b.delay}s`, width: b.s, height: b.s }} />)}
+        </div>
+      )}
+
+      {id === 'quake' && (
+        <svg className="fin-at cracks" viewBox="-320 -320 640 640">
+          {parts.cracks.map((c, i) => <polyline key={i} points={c} style={{ animationDelay: `${0.2 + i * 0.06}s` }} />)}
+        </svg>
+      )}
+
+      <div className="fin-title">
+        <div className="fin-name">{f.icon} {f.name}</div>
+        <div className="fin-sub">{defeated ? 'YOU HAVE BEEN FINISHED' : 'CHECKMATE'}</div>
+      </div>
+    </div>
+  );
+}

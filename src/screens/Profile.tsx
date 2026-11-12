@@ -1,6 +1,41 @@
 import { useEffect, useState } from 'react';
 import { BADGES, BOARD_THEMES, TIERS } from '../lib/levels';
 import { actions, useProgress } from '../lib/store';
+import Board from '../components/Board';
+import { FINISHERS, type FinisherId } from '../lib/finishers';
+
+const PRE_MATE = '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1';
+const MATE = '3R2k1/5ppp/8/8/8/8/5PPP/6K1 b - - 1 1';
+
+/** Replays a back-rank mate so each checkmate finisher can be previewed. */
+function FinisherGallery({ theme }: { theme: string }) {
+  const [pick, setPick] = useState<{ id: FinisherId; n: number } | null>(null);
+  const [fen, setFen] = useState(PRE_MATE);
+  useEffect(() => {
+    if (!pick) return;
+    setFen(PRE_MATE);
+    const t = window.setTimeout(() => setFen(MATE), 450);
+    return () => clearTimeout(t);
+  }, [pick]);
+  return (
+    <>
+      <div className="finishers">
+        {(Object.keys(FINISHERS) as FinisherId[]).map((id) => (
+          <button key={id} className={`finisher-chip${pick?.id === id ? ' on' : ''}`} style={{ ['--fc' as string]: FINISHERS[id].color }} onClick={() => setPick({ id, n: (pick?.n ?? 0) + 1 })}>
+            <span>{FINISHERS[id].icon}</span>
+            <b>{FINISHERS[id].name}</b>
+            <small>{FINISHERS[id].tagline}</small>
+          </button>
+        ))}
+      </div>
+      {pick && (
+        <div className="finisher-stage">
+          <Board key={pick.n} fen={fen} orientation="w" theme={theme} finisher={pick.id} lastMove={fen === MATE ? ['d1', 'd8'] : null} />
+        </div>
+      )}
+    </>
+  );
+}
 
 interface InstallEvent extends Event {
   prompt: () => Promise<void>;
@@ -64,9 +99,14 @@ export default function Profile() {
         })}
       </div>
 
+      <h2 className="section-title">Finisher gallery</h2>
+      <p className="muted small">Every opening family ends with its own checkmate finisher. Tap one to preview it.</p>
+      <FinisherGallery theme={p.theme} />
+
       <h2 className="section-title">Settings</h2>
       <div className="card settings">
         <label className="toggle"><input type="checkbox" checked={p.settings.sound} onChange={(e) => actions.setSetting('sound', e.target.checked)} /> Sound effects</label>
+        <label className="toggle"><input type="checkbox" checked={p.settings.fx !== false} onChange={(e) => actions.setSetting('fx', e.target.checked)} /> Combat animations (piece strikes, knockouts, finishers)</label>
         {install && <button className="btn" onClick={() => install.prompt()}>📲 Install app</button>}
         {!install && <p className="muted small">To install: open the browser menu and choose "Add to Home screen". EloForge works offline once installed.</p>}
         {!confirmReset

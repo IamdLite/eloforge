@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Chess, type PieceSymbol, type Square } from 'chess.js';
 import { PIECES } from '../assets/pieces';
 import { BOARD_THEMES } from '../lib/levels';
 import type { Arrow, Marker } from '../lib/analysis';
+import { useProgress } from '../lib/store';
+import type { FinisherId } from '../lib/finishers';
+import { Announce, CallOut, FinisherFx, ImpactFx, type Impact } from './CombatFx';
+import { combatSfx } from './ui';
 
 export interface BoardMove {
   from: Square;
@@ -20,6 +24,64 @@ interface Props {
   lastMove?: [string, string] | null;
   theme: string;
   flash?: { square: string; kind: 'good' | 'bad' } | null;
+  /** checkmate animation to play when this position is mate */
+  finisher?: FinisherId;
+  /** big round call-out, replayed whenever `key` changes */
+  announce?: { text: string; key: string | number } | null;
+}
+
+/** A piece with a stable identity across positions, so it can slide, strike and be knocked out. */
+interface Sprite {
+  id: number;
+  key: string;
+  sq: Square;
+  /** square it moved from in the latest position change */
+  from?: Square;
+  anim?: 'dash' | 'strike' | 'instant';
+  ko?: { dx: number; dy: number };
+}
+
+const VALUE: Record<string, number> = { p: 1, n: 2, b: 2, r: 3, q: 4, k: 4 };
+const HIT_TEXT = ['', 'HIT!', 'CRUSH!', 'BRUTAL!', 'DEVASTATING!'];
+const HIT_COLOR = ['', '#f59e0b', '#f97316', '#ef4444', '#e11d48'];
+let spriteSeq = 0;
+
+function piecesOf(chess: Chess) {
+  const out: { sq: Square; key: string }[] = [];
+  chess.board().forEach((row) => row.forEach((p) => p && out.push({ sq: p.square, key: p.color + p.type.toUpperCase() })));
+  return out;
+}
+
+const dist = (a: string, b: string) => Math.abs(a.charCodeAt(0) - b.charCodeAt(0)) + Math.abs(Number(a[1]) - Number(b[1]));
+
+/**
+ * Match the pieces of the new position to the previous sprites: unchanged squares keep their sprite,
+ * moved pieces reuse the nearest sprite of the same kind (a promoted piece reuses its pawn), and
+ * leftover old sprites were captured. Big jumps (new puzzle, undo several moves) just reset.
+ */
+function diffSprites(prev: Sprite[], next: { sq: Square; key: string }[]) {
+  const pool = prev.filter((s) => !s.ko);
+  const out: Sprite[] = [];
+  const todo: { sq: Square; key: string }[] = [];
+  for (const n of next) {
+    const i = pool.findIndex((s) => s.sq === n.sq && s.key === n.key);
+    if (i >= 0) out.push({ ...pool.splice(i, 1)[0], anim: undefined, from: undefined });
+    else todo.push(n);
+  }
+  if (todo.length > 3) return { sprites: next.map((n) => ({ id: ++spriteSeq, ...n })), moved: [] as Sprite[], dead: [] as Sprite[], reset: true };
+  const moved: Sprite[] = [];
+  for (const n of todo) {
+    const same = pool.filter((s) => s.key === n.key);
+    const cands = same.length ? same : pool.filter((s) => s.key === n.key[0] + 'P');
+    const best = cands.sort((a, b) => dist(a.sq, n.sq) - dist(b.sq, n.sq))[0];
+    if (best) {
+      pool.splice(pool.indexOf(best), 1);
+      const s: Sprite = { ...best, key: n.key, sq: n.sq, anim: 'dash', from: best.sq };
+      moved.push(s);
+      out.push(s);
+    } else out.push({ id: ++spriteSeq, ...n });
+  }
+  return { sprites: out, moved, dead: pool, reset: false };
 }
 
 const FILES = 'abcdefgh';
@@ -38,8 +100,10 @@ function xyToSquare(x: number, y: number, orientation: 'w' | 'b'): Square | null
   return (FILES[f] + (r + 1)) as Square;
 }
 
-export default function Board({ fen, orientation, interactive, onMove, arrows = [], markers = [], lastMove, theme, flash }: Props) {
+export default function Board({ fen, orientation, interactive, onMove, arrows = [], markers = [], lastMove, theme, flash, finisher, announce }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const settings = useProgress().settings;
+  const fx = settings.fx !== false;
   const [selected, setSelected] = useState<Square | null>(null);
   const [drag, setDrag] = useState<{ from: Square; x: number; y: number; active: boolean } | null>(null);
   const [promo, setPromo] = useState<{ from: Square; to: Square } | null>(null);
@@ -66,11 +130,84 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
     return m;
   }, [chess, selected, drag?.from]);
 
-  const pieces = useMemo(() => {
-    const out: { sq: Square; key: string }[] = [];
-    chess.board().forEach((row) => row.forEach((p) => p && out.push({ sq: p.square, key: p.color + p.type.toUpperCase() })));
-    return out;
-  }, [chess]);
+  // ── combat layer ──
+  const [sprites, setSprites] = useState<Sprite[]>(() => piecesOf(chess).map((n) => ({ id: ++spriteSeq, ...n })));
+  const [impacts, setImpacts] = useState<Impact[]>([]);
+  const [callout, setCallout] = useState<{ id: number; sq: Square; text: string; kind: 'check' | 'combo' } | null>(null);
+  const [shake, setShake] = useState(0);
+  const [mateFx, setMateFx] = useState<string | null>(null);
+  const [shownAnnounce, setShownAnnounce] = useState<string | number | null>(null);
+  const dropped = useRef<Square | null>(null);
+  const seenFen = useRef(fen);
+  const timers = useRef<number[]>([]);
+  const later = (fn: () => void, ms: number) => timers.current.push(window.setTimeout(fn, ms));
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+
+  useLayoutEffect(() => {
+    if (seenFen.current === fen) return;
+    seenFen.current = fen;
+    const { sprites: next, moved, dead, reset } = diffSprites(sprites, piecesOf(chess));
+    const drop = dropped.current;
+    dropped.current = null;
+    setMateFx(null);
+    if (reset || !fx) {
+      setSprites(next.map((s) => (reset ? s : { ...s, anim: undefined })));
+      setImpacts([]);
+      setCallout(null);
+    } else {
+      const victims = dead.filter((d) => d.key[1] !== 'K');
+      const attacker = moved.find((m) => victims.some((v) => v.key[0] !== m.key[0]));
+      for (const m of moved) if (m.sq === drop) m.anim = 'instant';
+      let power = 0;
+      const ko: Sprite[] = victims.map((v) => {
+        const p = VALUE[v.key[1].toLowerCase()];
+        power = Math.max(power, p);
+        const a = attacker?.from ? squareXY(attacker.from, orientation) : { x: 0, y: 0 };
+        const b = squareXY(v.sq, orientation);
+        const dx = Math.sign(b.x - a.x) || (Math.random() < 0.5 ? -1 : 1);
+        const dy = Math.sign(b.y - a.y) || -1;
+        return { ...v, anim: undefined, ko: { dx, dy } };
+      });
+      if (attacker && attacker.anim !== 'instant') attacker.anim = 'strike';
+      setSprites([...next, ...ko]);
+      if (ko.length) {
+        later(() => setSprites((cur) => cur.filter((s) => !ko.some((k) => k.id === s.id))), 1100);
+        const at = squareXY(ko[0].sq, orientation);
+        const id = ++spriteSeq;
+        setImpacts((cur) => [...cur.slice(-2), { id, x: at.x, y: at.y, power, text: HIT_TEXT[power], color: HIT_COLOR[power] }]);
+        later(() => setImpacts((cur) => cur.filter((i) => i.id !== id)), 1300);
+        setShake(0);
+        requestAnimationFrame(() => setShake(power));
+        later(() => setShake(0), 600);
+        if (settings.sound) combatSfx(power >= 3 ? 'heavy' : 'hit');
+      } else if (moved.length && settings.sound) combatSfx('whoosh');
+      const mated = chess.isCheckmate();
+      const kingSq = chess.inCheck() ? next.find((s) => s.key === chess.turn() + 'K')?.sq : undefined;
+      if (kingSq && !mated) setCallout({ id: ++spriteSeq, sq: kingSq, text: ko.length ? 'COMBO!' : 'CHECK!', kind: ko.length ? 'combo' : 'check' });
+      else setCallout(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fen]);
+
+  // Hold the finisher until the mating piece has landed.
+  const isMate = chess.isCheckmate();
+  useEffect(() => {
+    if (!isMate || !fx || !finisher) return;
+    const t = window.setTimeout(() => {
+      setMateFx(fen);
+      setShake(0);
+      if (settings.sound) combatSfx('finisher');
+    }, 380);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMate, fen, fx, finisher]);
+
+  useEffect(() => {
+    if (!announce || !fx) return;
+    setShownAnnounce(announce.key);
+    const t = window.setTimeout(() => setShownAnnounce(null), 1350);
+    return () => clearTimeout(t);
+  }, [announce?.key, fx]);
 
   const turn = chess.turn();
   const canMovePiece = (sq: Square) => {
@@ -122,6 +259,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
     const d = drag;
     setDrag(null);
     if (d.active && sq && sq !== d.from) {
+      dropped.current = sq;
       if (!tryMove(d.from, sq)) setSelected(null);
     }
   };
@@ -132,10 +270,12 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
     : null;
 
   const checkSq = chess.inCheck() ? chess.board().flat().find((p) => p && p.type === 'k' && p.color === turn)?.square : null;
+  const showMate = fx && finisher && mateFx === fen && checkSq;
+  const mateXY = showMate ? squareXY(checkSq, orientation) : null;
 
   return (
     <div
-      className="board"
+      className={`board${fx ? '' : ' no-fx'}${shake ? ' shake' + shake : ''}`}
       ref={ref}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -189,17 +329,23 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
         </defs>
       </svg>
 
-      {pieces.map((p) => {
+      {sprites.map((p) => {
         const { x, y } = squareXY(p.sq, orientation);
-        const hidden = drag?.active && drag.from === p.sq;
+        const hidden = drag?.active && drag.from === p.sq && !p.ko;
+        const cls = ['piece', p.anim, p.ko && 'ko', showMate && p.sq === checkSq && !p.ko && 'kingfx-' + finisher, fx && !p.ko && !showMate && p.sq === checkSq && 'checked'];
         return (
           <img
-            key={p.sq + p.key}
+            key={p.id}
             src={PIECES[p.key]}
-            className="piece"
+            className={cls.filter(Boolean).join(' ')}
             draggable={false}
             alt=""
-            style={{ left: `${x * 12.5}%`, top: `${y * 12.5}%`, opacity: hidden ? 0.25 : 1 }}
+            style={{
+              left: `${x * 12.5}%`,
+              top: `${y * 12.5}%`,
+              opacity: hidden ? 0.25 : undefined,
+              ...(p.ko ? { ['--dx' as string]: p.ko.dx, ['--dy' as string]: p.ko.dy } : {}),
+            }}
           />
         );
       })}
@@ -251,6 +397,20 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
           );
         })}
       </svg>
+
+      {fx && (
+        <div className="fx-layer">
+          {impacts.map((i) => <ImpactFx key={i.id} fx={i} />)}
+          {callout && (() => {
+            const { x, y } = squareXY(callout.sq, orientation);
+            return <CallOut key={callout.id} x={x} y={y} text={callout.text} kind={callout.kind} />;
+          })()}
+        </div>
+      )}
+      {showMate && mateXY && (
+        <FinisherFx key={fen} id={finisher!} x={mateXY.x} y={mateXY.y} kingImg={PIECES[turn + 'K']} defeated={turn === orientation} />
+      )}
+      {fx && announce && shownAnnounce === announce.key && <Announce key={announce.key} text={announce.text} />}
 
       {dragStyle && drag && (
         <img src={PIECES[(chess.get(drag.from)!.color) + chess.get(drag.from)!.type.toUpperCase()]} className="piece dragging" style={dragStyle} alt="" />

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import { useNav } from '../App';
+import { finisherFor } from '../lib/finishers';
 import Board, { ARROW, type BoardMove } from '../components/Board';
 import { CoachFeed, HintBar, OverlayBar, nextFeedId, useOverlay, useSfx, type FeedItem } from '../components/ui';
 import { openingById } from '../data/openings';
@@ -270,7 +271,7 @@ export default function OpeningTrainer({ id, mode, line }: { id: string; mode: '
         <div className="dots">{Array.from({ length: MASTERED }, (_, i) => <span key={i} className={`dot ${i < lvl ? 'on' : ''}`} />)}</div>
       </div>
 
-      <Board fen={fen} orientation={side} interactive={!done && userTurn} onMove={onMove} arrows={arrows} markers={overlay.markers} lastMove={lastMove} theme={p.theme} flash={flash} />
+      <Board fen={fen} orientation={side} interactive={!done && userTurn} onMove={onMove} arrows={arrows} markers={overlay.markers} lastMove={lastMove} theme={p.theme} flash={flash} finisher={finisherFor(op.id)} />
 
       <div className="movelist">{moves || 'Starting position'}{offBook ? ` · ${offBook.san}` : ''}</div>
 
@@ -313,7 +314,7 @@ export default function OpeningTrainer({ id, mode, line }: { id: string; mode: '
             {mode === 'learn' && done === 'line' && <button className="btn primary" onClick={() => go({ name: 'opening-train', id, mode: 'drill', line: target })}>🧠 Drill this line</button>}
             {mode === 'drill' && <button className="btn primary" onClick={() => restart()}>Next line ›</button>}
             <button className="btn" onClick={() => restart(target)}>↺ Again</button>
-            <button className="btn" onClick={() => go({ name: 'play', fen, side })}>🤖 Play on vs bot</button>
+            <button className="btn" onClick={() => go({ name: 'play', fen, side, opening: op.id })}>🤖 Play on vs bot</button>
           </div>
         </div>
       )}

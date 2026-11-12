@@ -21,7 +21,7 @@ export type Route =
   | { name: 'puzzle'; theme?: string; id?: string }
   | { name: 'endgames' }
   | { name: 'endgame'; id: string }
-  | { name: 'play'; fen?: string; side?: 'w' | 'b' }
+  | { name: 'play'; fen?: string; side?: 'w' | 'b'; opening?: string }
   | { name: 'profile' };
 
 const NavCtx = createContext<{ go: (r: Route) => void; back: () => void }>({ go: () => {}, back: () => {} });
@@ -86,7 +86,7 @@ export default function App() {
         {route.name === 'puzzle' && <PuzzleTrainer theme={route.theme} startId={route.id} />}
         {route.name === 'endgames' && <Endgames />}
         {route.name === 'endgame' && <EndgameTrainer key={route.id} id={route.id} />}
-        {route.name === 'play' && <Play key={route.fen ?? 'new'} startFen={route.fen} startSide={route.side} />}
+        {route.name === 'play' && <Play key={route.fen ?? 'new'} startFen={route.fen} startSide={route.side} opening={route.opening} />}
         {route.name === 'profile' && <Profile />}
       </main>
 
