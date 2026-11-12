@@ -3,7 +3,7 @@ import { Chess, type Color } from 'chess.js';
 import { useNav } from '../App';
 import { finisherFor } from '../lib/finishers';
 import Board, { ARROW, type BoardMove } from '../components/Board';
-import { CoachFeed, EvalBar, HintBar, OverlayBar, nextFeedId, useOverlay, useSfx, type FeedItem } from '../components/ui';
+import { CoachFeed, EvalBar, HintBar, OverlayBar, nextFeedId, useOverlay, useSfx, type FeedItem, useAnnouncer } from '../components/ui';
 import { ENDGAMES } from '../data/endgames';
 import { actions, useProgress } from '../lib/store';
 import { describeMove } from '../lib/commentary';
@@ -45,6 +45,7 @@ export default function EndgameTrainer({ id }: { id: string }) {
   const [arrows, setArrows] = useState<Arrow[]>([]);
   const [evalCp, setEvalCp] = useState<number | null>(null);
   const [best, setBest] = useState<EngineLine | null>(null);
+  const announcer = useAnnouncer();
   const demoRef = useRef(0);
   const overlay = useOverlay(fen);
 
@@ -63,6 +64,7 @@ export default function EndgameTrainer({ id }: { id: string }) {
     engine.analyse(fen, { depth: 16 }, 'eg-best').then((ls) => {
       if (!live) return;
       setBest(ls[0]);
+      announcer.report(ls[0].mate, 4);
       setEvalCp(whiteCp(ls[0], fen));
     }).catch(() => {});
     return () => {
@@ -211,7 +213,7 @@ export default function EndgameTrainer({ id }: { id: string }) {
 
       <div className="board-row">
         {(phase === 'practice' || phase === 'demo') && <EvalBar cp={evalCp} orientation={user} />}
-        <Board fen={fen} orientation={user} interactive={phase === 'practice' && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} finisher={finisherFor(null, eg.id)} />
+        <Board fen={fen} orientation={user} interactive={phase === 'practice' && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} finisher={finisherFor(null, eg.id)} announce={announcer.announce} />
       </div>
 
       {phase === 'lesson' && (
@@ -234,10 +236,11 @@ export default function EndgameTrainer({ id }: { id: string }) {
       {phase === 'practice' && (
         <>
           <div className="prompt subtle"><b>{thinking ? 'Stockfish is thinking…' : 'Your move'}</b><span>{goalText()}</span></div>
-          <HintBar fen={fen} disabled={thinking} onHint={(_, a) => { setArrows([a]); setClean(false); }} />
-          <div className="row gap toolbar">
-            <button className="btn small" onClick={takeback} disabled={!history.length || thinking}>↶ Takeback</button>
-            <button className="btn small" onClick={startPractice}>↺ Restart</button>
+          <div className="dock">
+            <HintBar fen={fen} disabled={thinking} onHint={(_, a) => { setArrows([a]); setClean(false); }} />
+            <button className="chip" onClick={takeback} disabled={!history.length || thinking}>↶ Undo</button>
+            <button className="chip" onClick={startPractice}>↺ Restart</button>
+            <OverlayBar notes={overlay.notes} />
           </div>
         </>
       )}
@@ -252,7 +255,7 @@ export default function EndgameTrainer({ id }: { id: string }) {
         </div>
       )}
 
-      <OverlayBar notes={overlay.notes} />
+      {phase !== 'practice' && <div className="dock"><OverlayBar notes={overlay.notes} /></div>}
       <CoachFeed items={feed} />
     </div>
   );

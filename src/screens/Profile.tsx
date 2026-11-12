@@ -23,6 +23,7 @@ const ATTACK_DEMOS: Demo[] = [
   { label: 'Rook', icon: '♖', desc: 'Cannon blast', fen: '4k3/b7/8/8/8/8/8/R3K3 w - - 0 1', san: 'Rxa7' },
   { label: 'Queen', icon: '♕', desc: 'Charged beam', fen: '3k4/8/8/7n/8/8/8/3QK3 w - - 0 1', san: 'Qxh5' },
   { label: 'King', icon: '♔', desc: 'Ground-pound', fen: '4k3/8/8/8/8/8/3n4/4K3 w - - 0 1', san: 'Kxd2' },
+  { label: 'Promotion', icon: '✨', desc: 'Pawn ascends to a queen', fen: '4k3/1P6/8/8/8/8/8/4K3 w - - 0 1', san: 'b8=Q' },
   { label: 'Brilliant!!', icon: '🤸', desc: 'Knight triple salto', fen: '4k3/8/8/8/8/8/8/1N2K3 w - - 0 1', san: 'Nc3', celebrate: true },
   { label: 'Brilliant!!', icon: '🎯', desc: 'Bishop fires in the air', fen: '4k3/8/8/8/8/8/8/1B2K3 w - - 0 1', san: 'Be4', celebrate: true },
 ];
@@ -60,7 +61,10 @@ function CombatGallery({ theme }: { theme: string }) {
           key={d.label + d.desc}
           className={`finisher-chip${pick?.demo === d ? ' on' : ''}`}
           style={{ ['--fc' as string]: d.finisher ? FINISHERS[d.finisher].color : '#facc15' }}
-          onClick={() => setPick({ demo: d, n: (pick?.n ?? 0) + 1 })}
+          onClick={() => {
+            setFen('');
+            setPick({ demo: d, n: (pick?.n ?? 0) + 1 });
+          }}
         >
           <span>{d.icon}</span>
           <b>{d.label}</b>
@@ -165,6 +169,7 @@ export default function Profile() {
       <div className="card settings">
         <label className="toggle"><input type="checkbox" checked={p.settings.sound} onChange={(e) => actions.setSetting('sound', e.target.checked)} /> Sound effects</label>
         <label className="toggle"><input type="checkbox" checked={p.settings.fx !== false} onChange={(e) => actions.setSetting('fx', e.target.checked)} /> Combat animations (piece strikes, knockouts, finishers)</label>
+        <label className="toggle"><input type="checkbox" checked={p.settings.voice !== false} onChange={(e) => actions.setSetting('voice', e.target.checked)} /> Announcer voice ("Fight!", "Finish it!", "Brilliant!")</label>
         {install && <button className="btn" onClick={() => install.prompt()}>📲 Install app</button>}
         {!install && <p className="muted small">To install: open the browser menu and choose "Add to Home screen". EloForge works offline once installed.</p>}
         {!confirmReset

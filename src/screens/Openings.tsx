@@ -21,7 +21,7 @@ export default function Openings() {
   return (
     <div>
       <h1 className="page-title">Openings</h1>
-      <p className="muted page-sub">Learn each line with live commentary, then drill it from memory until it's mastered. Drills branch on your opponent's choices, including traps and surprise moves.</p>
+      <p className="muted page-sub">Learn each line with live commentary, then drill it from memory until it's mastered. Drills branch on your opponent's choices, including traps and surprise moves, and every line is played out to checkmate. ✨ Bonus openings are optional for tier exams.</p>
       {TIERS.map((t) => {
         const ops = OPENINGS.filter((o) => o.tier === t.id);
         if (!ops.length) return null;
@@ -40,7 +40,7 @@ export default function Openings() {
                   <button key={o.id} className="op-card card" disabled={locked} onClick={() => go({ name: 'opening', id: o.id })}>
                     <div className="op-top">
                       <span className={`side side-${o.side}`}>{o.side === 'w' ? 'White' : 'Black'}</span>
-                      <span className="muted small">{o.eco}</span>
+                      <span className="muted small">{o.extra ? '✨ Bonus · ' : ''}{o.eco}</span>
                     </div>
                     <b>{o.name}</b>
                     <small className="muted">{o.lines.length} lines · {o.lines.filter((l) => l.trap).length} traps</small>

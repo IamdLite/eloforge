@@ -2,7 +2,7 @@
 //  - every opening line is legal; the learner's moves are close to engine-best; final position is OK
 //  - every hand-made puzzle has a unique best move at each step (or a mate)
 //  - every endgame has the advertised result
-// Usage: node scripts/validate-content.mjs [openings|puzzles|endgames]
+// Usage: node scripts/validate-content.mjs [openings|puzzles|endgames] [comma-separated opening ids]
 import { Chess } from 'chess.js';
 
 import { Uci, score, winPct, uciMove } from './uci.mjs';
@@ -10,6 +10,7 @@ import { Uci, score, winPct, uciMove } from './uci.mjs';
 const { OPENINGS } = await import('../src/data/openings.ts');
 const { ENDGAMES } = await import('../src/data/endgames.ts');
 const what = process.argv[2] ?? 'all';
+const only = process.argv[3]?.split(',');
 const uci = new Uci();
 await uci.init();
 let problems = 0;
@@ -28,7 +29,7 @@ if (what === 'all' || what === 'openings') {
     if (!cache.has(fen)) cache.set(fen, await uci.analyse(fen, { depth: 14 }));
     return cache.get(fen);
   };
-  for (const op of OPENINGS) {
+  for (const op of OPENINGS.filter((o) => !only || only.includes(o.id))) {
     for (const [i, line] of op.lines.entries()) {
       const c = new Chess();
       for (const san of tokens(line.pgn)) {

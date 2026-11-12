@@ -3,7 +3,7 @@ import { Chess } from 'chess.js';
 import { useNav } from '../App';
 import { finisherFor } from '../lib/finishers';
 import Board, { ARROW, type BoardMove } from '../components/Board';
-import { CoachFeed, HintBar, OverlayBar, nextFeedId, useOverlay, useSfx, type FeedItem } from '../components/ui';
+import { CoachFeed, HintBar, OverlayBar, nextFeedId, useOverlay, useSfx, type FeedItem, useAnnouncer } from '../components/ui';
 import { THEME_INFO, puzzleById, type Puzzle } from '../data/puzzles';
 import { actions, getProgress, useProgress } from '../lib/store';
 import { describeMove } from '../lib/commentary';
@@ -25,6 +25,7 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
   const [flash, setFlash] = useState<{ square: string; kind: 'good' | 'bad' } | null>(null);
   const [arrows, setArrows] = useState<Arrow[]>([]);
   const [showThemes, setShowThemes] = useState(false);
+  const announcer = useAnnouncer();
   const [celebrate, setCelebrate] = useState<{ square: string; text: string; key: number } | null>(null);
   const recorded = useRef(false);
   const hinted = useRef(false);
@@ -38,6 +39,7 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
     setStatus('play');
     setArrows([]);
     setShowThemes(false);
+    announcer.rearm();
     setLastMove(z.lastMove ? [z.lastMove.slice(0, 2), z.lastMove.slice(2, 4)] : null);
     recorded.current = false;
     hinted.current = false;
@@ -46,6 +48,18 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
   };
 
   useEffect(() => load(puzzle), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The last move of a mating combination: "FINISH IT!" (never on move one, which would give the puzzle away)
+  useEffect(() => {
+    if (!puzzle || status !== 'play' || k === 0 || k !== puzzle.moves.length - 1) return;
+    try {
+      const c = new Chess(fen);
+      c.move(uciToMove(puzzle.moves[k]));
+      announcer.report(c.isCheckmate() ? 1 : undefined, 1);
+    } catch {
+      /* stale position */
+    }
+  }, [k, fen, status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!puzzle) return <div><button className="back" onClick={back}>‹ Back</button><p>No puzzles for this theme yet.</p></div>;
   const orientation = new Chess(puzzle.fen).turn();
@@ -149,7 +163,7 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
         <div className="pill">{showThemes || status !== 'play' ? puzzle.rating : '????'}</div>
       </div>
 
-      <Board fen={fen} orientation={orientation} interactive={status === 'play'} onMove={onMove} arrows={[...(status === 'play' ? [] : overlay.arrows), ...arrows]} markers={status === 'play' ? [] : overlay.markers} lastMove={lastMove} theme={p.theme} flash={flash} finisher={finisherFor(null, puzzle.id)} celebrate={celebrate} />
+      <Board fen={fen} orientation={orientation} interactive={status === 'play'} onMove={onMove} arrows={[...(status === 'play' ? [] : overlay.arrows), ...arrows]} markers={status === 'play' ? [] : overlay.markers} lastMove={lastMove} theme={p.theme} flash={flash} finisher={finisherFor(null, puzzle.id)} celebrate={celebrate} announce={announcer.announce} />
 
       {showThemes && (
         <div className="tags">
@@ -157,16 +171,19 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
         </div>
       )}
 
-      {status === 'play' && (
-        <HintBar
-          fen={fen}
-          override={puzzle.moves[k]}
-          onHint={(_, a) => {
-            hinted.current = true;
-            setArrows([a]);
-          }}
-        />
-      )}
+      <div className="dock">
+        {status === 'play' && (
+          <HintBar
+            fen={fen}
+            override={puzzle.moves[k]}
+            onHint={(_, a) => {
+              hinted.current = true;
+              setArrows([a]);
+            }}
+          />
+        )}
+        {status !== 'play' && <OverlayBar notes={overlay.notes} />}
+      </div>
 
       {status !== 'play' && (
         <div className={`result card ${status === 'solved' ? 'win' : ''}`}>
@@ -179,7 +196,6 @@ export default function PuzzleTrainer({ theme, startId }: { theme?: string; star
         </div>
       )}
 
-      {status !== 'play' && <OverlayBar notes={overlay.notes} />}
       <CoachFeed items={feed} />
     </div>
   );

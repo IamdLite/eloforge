@@ -3,15 +3,23 @@ import { Chess } from 'chess.js';
 import { useNav } from '../App';
 import { finisherFor } from '../lib/finishers';
 import Board, { ARROW, type BoardMove } from '../components/Board';
-import { CoachFeed, HintBar, OverlayBar, nextFeedId, useOverlay, useSfx, type FeedItem } from '../components/ui';
+import { CoachFeed, HintBar, OverlayBar, nextFeedId, useAnnouncer, useOverlay, useSfx, type FeedItem } from '../components/ui';
 import { openingById } from '../data/openings';
 import { buildTree, lineId, type TreeNode } from '../lib/tree';
 import { actions, MASTERED, useProgress } from '../lib/store';
 import { classify, describeMove } from '../lib/commentary';
 import { engine, winPct, type EngineLine } from '../lib/engine';
-import { formatLine, pvToSan, uciToMove, type Arrow } from '../lib/analysis';
+import { NAME, formatLine, hangingPieces, pvToSan, uciToMove, type Arrow } from '../lib/analysis';
+import { lineScore, naturalMove } from '../lib/bot';
+import { shout } from '../lib/announcer';
 
-const lineScore = (l: EngineLine) => (l.mate !== undefined ? Math.sign(l.mate || -1) * (10000 - Math.abs(l.mate) * 10) : l.cp ?? 0);
+/** After the book: the game is played out to checkmate against a natural opponent. */
+interface Fight {
+  fens: string[];
+  sans: string[];
+  last: [string, string] | null;
+  result?: { text: string; won: boolean };
+}
 
 interface OffBook {
   fen: string;
@@ -54,13 +62,21 @@ export default function OpeningTrainer({ id, mode, line }: { id: string; mode: '
   const [peeked, setPeeked] = useState(false);
   const surpriseUsed = useRef(false);
   const busy = useRef(false);
+  const [fight, setFight] = useState<Fight | null>(null);
+  const [fightPre, setFightPre] = useState<EngineLine[] | null>(null);
+  const [fightArrows, setFightArrows] = useState<Arrow[]>([]);
+  const [thinking, setThinking] = useState(false);
+  const [celebrate, setCelebrate] = useState<{ square: string; text: string; key: number } | null>(null);
+  const announcer = useAnnouncer();
+  const fightId = useRef(0);
+  const oppElo = Math.max(800, Math.min(2100, Math.round(p.puzzleRating - 100)));
 
   const node = path.length ? path[path.length - 1] : root;
-  const fen = offBook?.fen ?? node.fen;
+  const fen = fight ? fight.fens[fight.fens.length - 1] : offBook?.fen ?? node.fen;
   const tline = paths[target];
   const expected: TreeNode | undefined = tline.nodes[path.length];
   const userTurn = new Chess(fen).turn() === side;
-  const lastMove: [string, string] | null = offBook ? offBook.lastMove : node.uci ? [node.uci.slice(0, 2), node.uci.slice(2, 4)] : null;
+  const lastMove: [string, string] | null = fight ? fight.last : offBook ? offBook.lastMove : node.uci ? [node.uci.slice(0, 2), node.uci.slice(2, 4)] : null;
   const overlay = useOverlay(fen);
 
   const push = (it: Omit<FeedItem, 'id'>) => setFeed((f) => [...f, { ...it, id: nextFeedId() }]);
@@ -97,7 +113,10 @@ export default function OpeningTrainer({ id, mode, line }: { id: string; mode: '
       if (mode === 'drill') {
         actions.line(lineId(op.id, target), clean);
         sfx(clean ? 'good' : 'bad');
+        push({ who: 'coach', text: clean ? '✅ Clean run! Your mastery of this line went up.' : '🔁 Line finished with mistakes. It comes back sooner for review.' });
       } else actions.xp(5);
+      const last = path[path.length - 1];
+      startFight(last.fen, last.uci ? [last.uci.slice(0, 2), last.uci.slice(2, 4)] : null);
     }
   }, [path.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -180,9 +199,11 @@ export default function OpeningTrainer({ id, mode, line }: { id: string; mode: '
     sfx(good ? 'good' : 'bad');
     actions.xp(good ? 15 : 4);
     setDone('surprise');
+    startFight(c.fen(), [m.from, m.to]);
   }
 
   const onMove = (mv: BoardMove) => {
+    if (fight) return void fightMove(mv);
     if (done) return;
     if (offBook) {
       if (!offBook.answered) void answerOffBook(mv);
@@ -220,7 +241,140 @@ export default function OpeningTrainer({ id, mode, line }: { id: string; mode: '
     }
   };
 
+  // ───── Fight to checkmate ─────
+  function startFight(from: string, last: [string, string] | null) {
+    const c = new Chess(from);
+    if (c.isGameOver()) return;
+    fightId.current++;
+    const id = fightId.current;
+    setTimeout(() => {
+      if (id !== fightId.current) return;
+      setFight({ fens: [from], sans: [], last });
+      setFightArrows([]);
+      setHintArrow(null);
+      announcer.rearm();
+      announcer.call('FIGHT!');
+      push({ who: 'coach', text: `⚔️ The book ends here. Now play it out to checkmate. Your opponent (~${oppElo}) plays natural moves for this position, and sometimes something unexpected.` });
+    }, 1100);
+  }
+
+  const endFight = (c: Chess) => {
+    if (!c.isGameOver()) return undefined;
+    if (c.isCheckmate()) {
+      const won = c.turn() !== side;
+      if (won) actions.xp(25);
+      return { text: won ? '🏆 Checkmate! You converted the opening.' : '💀 You got checkmated.', won };
+    }
+    return { text: '🤝 Draw' + (c.isStalemate() ? ' by stalemate' : c.isThreefoldRepetition() ? ' by repetition' : ''), won: false };
+  };
+
+  // Learner's turn: analyse for grading, hints, and "FINISH IT!"
+  useEffect(() => {
+    if (!fight || fight.result || !userTurn) return;
+    let live = true;
+    setFightPre(null);
+    engine.analyse(fen, { depth: 12, multipv: 2 }, 'fight-pre').then((ls) => {
+      if (!live) return;
+      setFightPre(ls);
+      announcer.report(ls[0].mate);
+      if (mode === 'learn') {
+        const b = ls[0].uci;
+        setFightArrows([{ from: b.slice(0, 2) as never, to: b.slice(2, 4) as never, color: ARROW.move }]);
+      }
+    }).catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [fen, !!fight, fight?.result, userTurn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Opponent's turn: a natural move, sometimes a surprise.
+  useEffect(() => {
+    if (!fight || fight.result || userTurn) return;
+    const id = fightId.current;
+    setThinking(true);
+    const t = setTimeout(async () => {
+      try {
+        const nm = await naturalMove(fen, oppElo);
+        if (id !== fightId.current) return;
+        const c = new Chess(fen);
+        const m = c.move(uciToMove(nm.uci));
+        sfx(m.captured ? 'capture' : 'move');
+        const notes = describeMove(m, c);
+        if (nm.unexpected) {
+          const usual = new Chess(fen).move(uciToMove(nm.unexpected.usual)).san;
+          notes.unshift(`😮 Unexpected! The natural move was ${usual}. Ask what ${m.san} allows.`);
+        }
+        const danger = hangingPieces(c).filter((h) => h.color === side).map((h) => `${NAME[c.get(h.square)!.type]} on ${h.square}`);
+        if (danger.length) notes.push(`⚠️ Your ${danger.join(' and ')} ${danger.length > 1 ? 'are' : 'is'} under attack.`);
+        push({ who: 'opp', san: m.san, text: notes.join(' ') });
+        setFight((f) => f && { ...f, fens: [...f.fens, c.fen()], sans: [...f.sans, m.san], last: [m.from, m.to], result: endFight(c) });
+      } catch {
+        /* superseded */
+      } finally {
+        if (id === fightId.current) setThinking(false);
+      }
+    }, 450);
+    return () => clearTimeout(t);
+  }, [fen, !!fight, fight?.result, userTurn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function fightMove(mv: BoardMove) {
+    if (!fight || fight.result || thinking) return;
+    const before = fen;
+    const c = new Chess(before);
+    let m;
+    try {
+      m = c.move(mv);
+    } catch {
+      return;
+    }
+    const id = fightId.current;
+    const pre = fightPre;
+    sfx(m.captured ? 'capture' : 'move');
+    setFightArrows([]);
+    setHintArrow(null);
+    const result = endFight(c);
+    setFight((f) => f && { ...f, fens: [...f.fens, c.fen()], sans: [...f.sans, m.san], last: [m.from, m.to], result });
+    const notes = describeMove(m, c);
+    if (result || !pre) {
+      push({ who: 'you', san: m.san, text: notes.join(' ') });
+      return;
+    }
+    const after = await engine.analyse(c.fen(), { depth: 11 }, 'fight-post').catch(() => null);
+    if (!after || id !== fightId.current) return;
+    const bestCp = lineScore(pre[0]);
+    const playedCp = -lineScore(after[0]);
+    const onlyMove = pre.length > 1 && winPct(bestCp) - winPct(lineScore(pre[1])) > 15 && m.lan === pre[0].uci;
+    const v = m.lan === pre[0].uci ? (onlyMove ? 'brilliant' : 'best') : classify(bestCp, playedCp);
+    let text = notes.join(' ');
+    if (v === 'brilliant') setCelebrate({ square: m.to, text: 'BRILLIANT!!', key: Date.now() });
+    if (['mistake', 'blunder'].includes(v)) {
+      const bestSan = pvToSan(before, pre[0].pv, 1)[0];
+      text += ` Better was ${bestSan} (${formatLine(before, pvToSan(before, pre[0].pv, 4))}). Tap Undo to try again.`;
+      setFightArrows([{ from: pre[0].uci.slice(0, 2) as never, to: pre[0].uci.slice(2, 4) as never, color: ARROW.move }]);
+      if (v === 'blunder') shout('Blunder!');
+    }
+    push({ who: 'you', san: m.san, verdict: v, text });
+  }
+
+  const undoFight = () => {
+    if (!fight || thinking) return;
+    fightId.current++;
+    setFight((f) => {
+      if (!f) return f;
+      const n = new Chess(f.fens[f.fens.length - 1]).turn() === side ? 2 : 1;
+      const keep = Math.max(1, f.fens.length - n);
+      const fens = f.fens.slice(0, keep);
+      return { fens, sans: f.sans.slice(0, keep - 1), last: null };
+    });
+    setFightArrows([]);
+    setThinking(false);
+  };
+
   const restart = (newLine?: number) => {
+    fightId.current++;
+    setFight(null);
+    setFightArrows([]);
+    setThinking(false);
     setPath([]);
     setClean(true);
     setMistake(null);
@@ -255,10 +409,14 @@ export default function OpeningTrainer({ id, mode, line }: { id: string; mode: '
     }
   }
   if (mode === 'learn' && !userTurn && node.arrows.length) node.arrows.forEach(([a, b]) => arrows.push({ from: a, to: b, color: ARROW.idea, width: 10 }));
+  if (fight) arrows.push(...fightArrows);
   if (hintArrow) arrows.push(hintArrow);
 
   const lvl = p.lines[lineId(op.id, target)]?.lvl ?? 0;
-  const moves = path.map((n, i) => (i % 2 === 0 ? `${i / 2 + 1}.${n.san}` : n.san)).join(' ');
+  const sans = [...path.map((n) => n.san), ...(offBook ? [offBook.san] : []), ...(fight?.sans ?? [])];
+  const moves = sans.map((x, i) => (i % 2 === 0 ? `${i / 2 + 1}.${x}` : x)).join(' ');
+  const fighting = !!fight && !fight.result;
+  const showResult = done && !fighting;
 
   return (
     <div className="trainer">
@@ -266,14 +424,27 @@ export default function OpeningTrainer({ id, mode, line }: { id: string; mode: '
         <button className="back" onClick={back}>‹</button>
         <div>
           <div className="eyebrow">{mode === 'learn' ? '🎓 Learn' : '🧠 Drill'} · {op.name}</div>
-          <b>{tline.trap && '⚠️ '}{tline.name}</b>
+          <b>{fight ? (fight.result ? fight.result.text : thinking ? '⚔️ Opponent is thinking…' : '⚔️ Fight to checkmate') : <>{tline.trap && '⚠️ '}{tline.name}</>}</b>
         </div>
         <div className="dots">{Array.from({ length: MASTERED }, (_, i) => <span key={i} className={`dot ${i < lvl ? 'on' : ''}`} />)}</div>
       </div>
 
-      <Board fen={fen} orientation={side} interactive={!done && userTurn} onMove={onMove} arrows={arrows} markers={overlay.markers} lastMove={lastMove} theme={p.theme} flash={flash} finisher={finisherFor(op.id)} />
+      <Board
+        fen={fen}
+        orientation={side}
+        interactive={fight ? fighting && userTurn && !thinking : !done && userTurn}
+        onMove={onMove}
+        arrows={arrows}
+        markers={overlay.markers}
+        lastMove={lastMove}
+        theme={p.theme}
+        flash={fight ? null : flash}
+        finisher={finisherFor(op.id)}
+        announce={announcer.announce}
+        celebrate={celebrate}
+      />
 
-      <div className="movelist">{moves || 'Starting position'}{offBook ? ` · ${offBook.san}` : ''}</div>
+      <div className="movelist" ref={(el) => el && (el.scrollLeft = el.scrollWidth)}>{moves || 'Starting position'}</div>
 
       {!done && userTurn && !offBook && expected && mode === 'learn' && (
         <div className="prompt">
@@ -283,56 +454,53 @@ export default function OpeningTrainer({ id, mode, line }: { id: string; mode: '
       )}
       {!done && userTurn && !offBook && mode === 'drill' && !mistake && (
         <div className="prompt subtle">
-          <b>Your move</b>
-          <span>Play the repertoire move from memory.</span>
+          <b>Your move: play the repertoire move from memory.</b>
           {!peeked && <button className="btn small ghost" onClick={peek}>Peek (breaks the clean run)</button>}
         </div>
       )}
-      {offBook && !offBook.answered && <HintBar fen={offBook.fen} onHint={(_, a) => { setHintArrow(a); setClean(false); }} />}
+      {fighting && userTurn && mode === 'learn' && fightPre && (
+        <div className="prompt subtle">
+          <b>Follow the green arrow: {pvToSan(fen, fightPre[0].pv, 1)[0]}</b>
+          <span>Plan: {formatLine(fen, pvToSan(fen, fightPre[0].pv, 4))}</span>
+        </div>
+      )}
 
-      {done && (
-        <div className={`result card ${done === 'line' && (clean || mode === 'learn') ? 'win' : ''}`}>
+      <div className="dock">
+        {((offBook && !offBook.answered) || fighting) && (
+          <HintBar fen={fen} disabled={!userTurn || thinking} onHint={(_, a) => { setHintArrow(a); setClean(false); }} />
+        )}
+        {fighting && <button className="chip" onClick={undoFight} disabled={thinking || fight!.fens.length < 2}>↶ Undo</button>}
+        {fighting && <button className="chip" onClick={() => { fightId.current++; setFight((f) => f && { ...f, result: { text: '⏭ Fight skipped', won: false } }); }}>⏭ Skip fight</button>}
+        {!fight && mode === 'learn' && <button className="chip" onClick={undo} disabled={!path.length}>‹ Back</button>}
+        <button className="chip" onClick={() => restart(target)}>↺ Restart</button>
+        <select className="select" value={target} onChange={(e) => restart(Number(e.target.value))}>
+          {paths.map((l) => <option key={l.index} value={l.index}>{l.trap ? '⚠️ ' : ''}{l.name}</option>)}
+        </select>
+        <OverlayBar notes={overlay.notes}>
+          {mode === 'drill' && (
+            <label className="toggle">
+              <input type="checkbox" checked={surprises} onChange={(e) => setSurprises(e.target.checked)} /> Surprise moves in the book
+            </label>
+          )}
+        </OverlayBar>
+      </div>
+
+      {showResult && (
+        <div className={`result card ${fight?.result?.won || (done === 'line' && (clean || mode === 'learn')) ? 'win' : ''}`}>
+          {fight?.result && fight.result.text !== '⏭ Fight skipped' && <h3>{fight.result.text}</h3>}
           {done === 'line' && mode === 'drill' && (
-            <>
-              <h3>{clean ? '✅ Clean run!' : '🔁 Line finished with mistakes'}</h3>
-              <p>{clean ? `Mastery ${Math.min(lvl, MASTERED)}/${MASTERED}. This line comes back for review later (spaced repetition).` : 'Mastery level went down. Repeat it until you can play it without help.'}</p>
-            </>
+            <p>{clean ? `✅ Clean book run. Mastery ${Math.min(lvl, MASTERED)}/${MASTERED}; the line comes back for review later.` : '🔁 The book part had mistakes. Repeat it until you can play it without help.'}</p>
           )}
-          {done === 'line' && mode === 'learn' && (
-            <>
-              <h3>🎓 Line learned</h3>
-              <p>Now drill it from memory. 3 clean runs, spread over days, mark it mastered.</p>
-            </>
-          )}
-          {done === 'surprise' && (
-            <>
-              <h3>😮 Surprise handled</h3>
-              <p>Off-book positions are where club games are won. Play it out against the bot to practice the middlegame.</p>
-            </>
-          )}
+          {done === 'line' && mode === 'learn' && <p>🎓 Line learned. Now drill it from memory: 3 clean runs, spread over days, mark it mastered.</p>}
+          {done === 'surprise' && <p>😮 You handled an off-book surprise. That's where club games are won.</p>}
           <div className="row gap wrap">
             {mode === 'learn' && done === 'line' && <button className="btn primary" onClick={() => go({ name: 'opening-train', id, mode: 'drill', line: target })}>🧠 Drill this line</button>}
             {mode === 'drill' && <button className="btn primary" onClick={() => restart()}>Next line ›</button>}
             <button className="btn" onClick={() => restart(target)}>↺ Again</button>
-            <button className="btn" onClick={() => go({ name: 'play', fen, side, opening: op.id })}>🤖 Play on vs bot</button>
           </div>
         </div>
       )}
 
-      <div className="row gap toolbar">
-        {mode === 'learn' && <button className="btn small" onClick={undo} disabled={!path.length}>‹ Back</button>}
-        <button className="btn small" onClick={() => restart(target)}>↺ Restart</button>
-        <select className="select" value={target} onChange={(e) => restart(Number(e.target.value))}>
-          {paths.map((l) => <option key={l.index} value={l.index}>{l.trap ? '⚠️ ' : ''}{l.name}</option>)}
-        </select>
-        {mode === 'drill' && (
-          <label className="toggle">
-            <input type="checkbox" checked={surprises} onChange={(e) => setSurprises(e.target.checked)} /> Surprise moves
-          </label>
-        )}
-      </div>
-
-      <OverlayBar notes={overlay.notes} />
       <CoachFeed items={feed} />
     </div>
   );

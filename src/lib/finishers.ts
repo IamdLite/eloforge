@@ -33,6 +33,22 @@ export const OPENING_FINISHER: Record<string, FinisherId> = {
   grunfeld: 'vortex',
   french: 'venom',
   nimzo: 'venom',
+  vienna: 'inferno',
+  'evans-gambit': 'meteor',
+  marshall: 'meteor',
+  petrov: 'glacier',
+  slav: 'glacier',
+  'semi-slav': 'glacier',
+  english: 'blade',
+  kia: 'quake',
+  alapin: 'blade',
+  rossolimo: 'thunder',
+  dragon: 'thunder',
+  sveshnikov: 'thunder',
+  pirc: 'vortex',
+  alekhine: 'vortex',
+  'queens-indian': 'vortex',
+  dutch: 'venom',
 };
 
 const ALL = Object.keys(FINISHERS) as FinisherId[];

@@ -330,3 +330,44 @@
 @media (prefers-reduced-motion: reduce) {
   .board.shake1, .board.shake2, .board.shake3, .board.shake4, .fin-quake { animation: none; }
 }
+
+/* ───────── Promotion: evolution / summoning ───────── */
+.evo { position: absolute; inset: 0; z-index: 9; pointer-events: none; overflow: hidden; animation: evo-out 0.4s ease-in 2.5s forwards; }
+@keyframes evo-out { to { opacity: 0; } }
+.evo-dim { position: absolute; inset: 0; background: radial-gradient(circle at var(--kx) var(--ky), rgba(30, 58, 138, 0.35), rgba(2, 6, 23, 0.85) 60%); animation: fadein-fx 0.4s ease-out both; }
+.evo-rays { position: absolute; left: -45cqw; top: -45cqw; width: 90cqw; height: 90cqw; border-radius: 50%; background: repeating-conic-gradient(from 0deg, rgba(254, 240, 138, 0.55) 0deg 6deg, transparent 6deg 22deg); -webkit-mask: radial-gradient(circle, #000 10%, transparent 68%); mask: radial-gradient(circle, #000 10%, transparent 68%); animation: evo-rays 2.6s linear both; }
+@keyframes evo-rays { 0% { transform: rotate(0) scale(0.2); opacity: 0; } 20% { opacity: 1; } 60% { transform: rotate(160deg) scale(1); } 100% { transform: rotate(260deg) scale(1.2); opacity: 0.7; } }
+.evo-circle { position: absolute; left: -22cqw; top: -22cqw; width: 44cqw; height: 44cqw; overflow: visible; filter: drop-shadow(0 0 1.2cqw #38bdf8); animation: evo-circle 2.6s ease-out both; }
+.evo-circle circle, .evo-circle polygon { fill: none; stroke: #7dd3fc; stroke-width: 3; }
+.evo-circle .thin { stroke-width: 1.5; stroke-dasharray: 8 6; }
+.evo-circle .rune { fill: #e0f2fe; stroke: none; }
+@keyframes evo-circle { 0% { transform: rotate(-90deg) scale(0) rotateX(0deg); opacity: 0; } 25% { transform: rotate(60deg) scale(1); opacity: 1; } 62% { transform: rotate(240deg) scale(1.05); opacity: 1; } 100% { transform: rotate(400deg) scale(1.4); opacity: 0; } }
+.evo-sprite { position: absolute; left: -9cqw; top: -9cqw; width: 18cqw; height: 18cqw; animation: evo-float 2.6s ease-in-out both; }
+@keyframes evo-float { 0% { transform: scale(0.7); } 20% { transform: translateY(-4cqw) scale(1); } 62% { transform: translateY(-4cqw) scale(1.1); } 75% { transform: translateY(-4cqw) scale(1.35); } 100% { transform: translateY(0) scale(0.7); } }
+.evo-sprite img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.evo-a { animation: evo-a 2.6s linear both; }
+.evo-b { animation: evo-b 2.6s linear both; }
+/* silhouettes flicker faster and faster, then the new piece appears in full color */
+@keyframes evo-a {
+  0% { opacity: 1; filter: none; }
+  12% { opacity: 1; filter: brightness(0) invert(1) drop-shadow(0 0 1.5cqw #fff); }
+  24%, 34%, 42%, 48%, 53%, 57%, 60% { opacity: 0; filter: brightness(0) invert(1) drop-shadow(0 0 1.5cqw #fff); }
+  29%, 38%, 45%, 50.5%, 55%, 58.5% { opacity: 1; filter: brightness(0) invert(1) drop-shadow(0 0 1.5cqw #fff); }
+  61%, 100% { opacity: 0; }
+}
+@keyframes evo-b {
+  0%, 23.9% { opacity: 0; filter: brightness(0) invert(1) drop-shadow(0 0 1.5cqw #fff); }
+  24%, 34%, 42%, 48%, 53%, 57% { opacity: 1; filter: brightness(0) invert(1) drop-shadow(0 0 1.5cqw #fff); }
+  29%, 38%, 45%, 50.5%, 55%, 58.5% { opacity: 0; filter: brightness(0) invert(1) drop-shadow(0 0 1.5cqw #fff); }
+  60%, 64% { opacity: 1; filter: brightness(0) invert(1) drop-shadow(0 0 3cqw #fff); }
+  70% { opacity: 1; filter: drop-shadow(0 0 3cqw #fde047); }
+  100% { opacity: 1; filter: drop-shadow(0 0 1cqw #fde047); }
+}
+.evo-flash { position: absolute; inset: 0; background: radial-gradient(circle at var(--kx) var(--ky), #fff 0%, rgba(255, 255, 255, 0.85) 40%, rgba(254, 240, 138, 0.4)); opacity: 0; animation: evo-flash 2.6s ease-out both; }
+@keyframes evo-flash { 0%, 61% { opacity: 0; } 64% { opacity: 1; } 78%, 100% { opacity: 0; } }
+.evo-spark { position: absolute; left: 0; top: 0; border-radius: 50%; background: #fef9c3; box-shadow: 0 0 6px #facc15; opacity: 0; animation: spark 0.8s ease-out both; }
+.evo-title { position: absolute; left: 0; right: 0; top: 10%; text-align: center; animation: slam 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) 1.65s both; }
+.evo-name { font-weight: 900; font-style: italic; font-size: 11cqw; line-height: 1; background: linear-gradient(180deg, #fff, #fde047 50%, #b45309); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: 0.3cqw rgba(0, 0, 0, 0.8); filter: drop-shadow(0 0 2cqw #facc15) drop-shadow(0.5cqw 0.5cqw 0 #000); }
+.evo-sub { margin-top: 1cqw; font-weight: 900; font-size: 4.4cqw; letter-spacing: 0.25em; color: #e0f2fe; text-shadow: 0 0 1.5cqw #38bdf8, 0.3cqw 0.3cqw 0 #000; }
+.piece.evolving { opacity: 0 !important; }
+

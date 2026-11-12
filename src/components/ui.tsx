@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { shout } from '../lib/announcer';
 import { Chess } from 'chess.js';
 import { computeOverlay, type Arrow, type Marker, type OverlayOptions } from '../lib/analysis';
 import { actions, useProgress } from '../lib/store';
@@ -50,34 +51,38 @@ const OVERLAY_LABELS: [keyof OverlayOptions, string, string][] = [
   ['king', '👑', 'King safety'],
 ];
 
-export function OverlayBar({ notes }: { notes: Marker[] }) {
+/** One "🔍 Tools" chip; tap to open overlay toggles (plus any extra controls) and the "why" notes. */
+export function OverlayBar({ notes, children }: { notes: Marker[]; children?: ReactNode }) {
   const p = useProgress();
   const [open, setOpen] = useState(false);
-  const shown = notes.slice(0, 6);
+  const active = OVERLAY_LABELS.filter(([k]) => p.settings.overlays[k]).length;
   return (
-    <div className="overlaybar">
-      <div className="chips">
-        {OVERLAY_LABELS.map(([k, icon, label]) => (
-          <button key={k} className={`chip ${p.settings.overlays[k] ? 'on' : ''}`} onClick={() => actions.setOverlay(k, !p.settings.overlays[k])}>
-            <span>{icon}</span> {label}
-          </button>
-        ))}
-        {notes.length > 0 && (
-          <button className="chip ghost" onClick={() => setOpen(!open)}>
-            {open ? 'Hide' : `Why? (${notes.length})`}
-          </button>
-        )}
-      </div>
+    <>
+      <button className={`chip${open ? ' on' : ''}`} onClick={() => setOpen(!open)}>
+        🔍 Tools{active ? ` · ${active}` : ''}{notes.length ? ` · ${notes.length} notes` : ''}
+      </button>
       {open && (
-        <ul className="notes">
-          {shown.map((n, i) => (
-            <li key={i} className={`note note-${n.kind}`}>
-              <b>{n.square}</b> {n.note}
-            </li>
-          ))}
-        </ul>
+        <div className="dock-panel">
+          <div className="chips">
+            {OVERLAY_LABELS.map(([k, icon, label]) => (
+              <button key={k} className={`chip ${p.settings.overlays[k] ? 'on' : ''}`} onClick={() => actions.setOverlay(k, !p.settings.overlays[k])}>
+                <span>{icon}</span> {label}
+              </button>
+            ))}
+          </div>
+          {children && <div className="chips">{children}</div>}
+          {notes.length > 0 && (
+            <ul className="notes">
+              {notes.slice(0, 6).map((n, i) => (
+                <li key={i} className={`note note-${n.kind}`}>
+                  <b>{n.square}</b> {n.note}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -89,26 +94,92 @@ export interface FeedItem {
   text: string;
 }
 
-export function CoachFeed({ items, title = 'Live commentary' }: { items: FeedItem[]; title?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current?.scrollTo({ top: ref.current.scrollHeight, behavior: 'smooth' });
-  }, [items.length]);
+function FeedLine({ it }: { it: FeedItem }) {
   return (
-    <div className="feed">
-      <div className="feed-title">🎙️ {title}</div>
-      <div className="feed-body" ref={ref}>
-        {items.length === 0 && <div className="feed-empty">Commentary appears here as moves are played.</div>}
-        {items.map((it) => (
-          <div key={it.id} className={`feed-item who-${it.who}`}>
-            {it.san && <span className="feed-san">{it.san}</span>}
-            {it.verdict && <span className={`verdict ${VERDICT_LABEL[it.verdict].cls}`}>{VERDICT_LABEL[it.verdict].icon} {VERDICT_LABEL[it.verdict].label}</span>}
-            <span className="feed-text">{it.text}</span>
-          </div>
-        ))}
-      </div>
-    </div>
+    <>
+      {it.san && <span className="feed-san">{it.san}</span>}
+      {it.verdict && <span className={`verdict ${VERDICT_LABEL[it.verdict].cls}`}>{VERDICT_LABEL[it.verdict].icon} {VERDICT_LABEL[it.verdict].label}</span>}
+      <span className="feed-text">{it.text}</span>
+    </>
   );
+}
+
+/**
+ * Live commentary, tucked into a floating bubble: new comments pop up briefly as a speech bubble,
+ * and tapping the bubble opens the full feed.
+ */
+export function CoachFeed({ items, title = 'Live commentary' }: { items: FeedItem[]; title?: string }) {
+  const [open, setOpen] = useState(false);
+  const [seen, setSeen] = useState(0);
+  const [toast, setToast] = useState<FeedItem | null>(null);
+  const shown = useRef<number | undefined>(undefined);
+  const body = useRef<HTMLDivElement>(null);
+  const last = items[items.length - 1];
+
+  useEffect(() => {
+    if (!last || last.id === shown.current) return;
+    shown.current = last.id;
+    if (open) return;
+    setToast(last);
+    const t = setTimeout(() => setToast(null), Math.min(9000, 3500 + last.text.length * 35));
+    return () => clearTimeout(t);
+  }, [last, open]);
+  useEffect(() => {
+    if (!open) return;
+    setSeen(items.length);
+    setToast(null);
+    body.current?.scrollTo({ top: body.current.scrollHeight });
+  }, [open, items.length]);
+
+  const unread = Math.max(0, items.length - seen);
+  return (
+    <>
+      {toast && !open && (
+        <button className={`coach-toast who-${toast.who}`} onClick={() => setOpen(true)}>
+          <FeedLine it={toast} />
+        </button>
+      )}
+      <button className={`coach-fab${unread ? ' has-unread' : ''}`} onClick={() => setOpen(!open)} aria-label={title}>
+        🎙️{unread > 0 && <span className="badge">{unread}</span>}
+      </button>
+      {open && (
+        <div className="sheet-bg" onClick={() => setOpen(false)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-head">
+              <b>🎙️ {title}</b>
+              <button className="btn small ghost" onClick={() => setOpen(false)}>✕</button>
+            </div>
+            <div className="feed-body" ref={body}>
+              {items.length === 0 && <div className="feed-empty">Commentary appears here as moves are played.</div>}
+              {items.map((it) => (
+                <div key={it.id} className={`feed-item who-${it.who}`}>
+                  <FeedLine it={it} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export type BoardAnnounce = { text: string; key: string | number } | null;
+
+/** Big board call-outs. `report(mate)` shouts "FINISH IT!" once a short forced mate appears, and re-arms if it is lost. */
+export function useAnnouncer() {
+  const armed = useRef(true);
+  const [announce, setAnnounce] = useState<BoardAnnounce>(null);
+  const report = (mate: number | undefined, maxMoves = 3) => {
+    if (mate !== undefined && mate > 0 && mate <= maxMoves) {
+      if (armed.current) {
+        armed.current = false;
+        setAnnounce({ text: 'FINISH IT!', key: Date.now() });
+      }
+    } else armed.current = true;
+  };
+  const call = (text: string) => setAnnounce({ text, key: Date.now() });
+  return { announce, report, call, rearm: () => (armed.current = true) };
 }
 
 let feedId = 1;
@@ -146,29 +217,24 @@ export function HintBar({ fen, disabled, onHint, override }: {
   };
 
   return (
-    <div className="hintbar">
-      <div className="hint-buttons">
-        {(['magnus', 'hikaru'] as Persona[]).map((p) => (
-          <button key={p} className={`hint-btn hint-${p}`} disabled={disabled || !!loading} onClick={() => ask(p)}>
-            <span className="hint-avatar">{PERSONAS[p].avatar}</span>
-            <span>
-              <b>{loading === p ? 'Thinking…' : `What would ${PERSONAS[p].name} do?`}</b>
-              <small>{PERSONAS[p].tag}</small>
-            </span>
-          </button>
-        ))}
-      </div>
+    <>
+      {(['magnus', 'hikaru'] as Persona[]).map((p) => (
+        <button key={p} className={`chip hint-chip hint-${p}`} disabled={disabled || !!loading} onClick={() => ask(p)} title={`What would ${PERSONAS[p].name} do? ${PERSONAS[p].tag}`}>
+          {PERSONAS[p].avatar} {loading === p ? 'Thinking…' : PERSONAS[p].name}?
+        </button>
+      ))}
       {hint && (
-        <div className={`hint-card hint-${hint.persona}`}>
+        <div className={`hint-card dock-panel hint-${hint.persona}`}>
           <div className="hint-head">
             {PERSONAS[hint.persona].avatar} <b>{PERSONAS[hint.persona].name}-inspired idea:</b> <span className="hint-move">{hint.san}</span>
+            <button className="hint-close" onClick={() => setHint(null)} aria-label="Close">✕</button>
           </div>
           <ul>{hint.why.slice(0, 3).map((w, i) => <li key={i}>{w}</li>)}</ul>
           {hint.line && <div className="hint-line">Line: {hint.line}</div>}
           <div className="hint-principle">💡 {hint.principle}</div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -206,6 +272,7 @@ export function RewardLayer() {
   }, [r]);
   useEffect(() => {
     if (r && p.settings.sound) chime(r.kind === 'tier' ? 3 : 1);
+    if (r?.kind === 'tier') shout('Level up!', { delay: 400 });
   }, [r, p.settings.sound]);
   if (!r) return null;
   if (r.kind === 'streak' && !r.xp) {
@@ -317,7 +384,7 @@ function sweep(from: number, to: number, start: number, dur: number, gain: numbe
   o.stop(t0 + dur);
 }
 
-export type CombatSound = 'whoosh' | 'hit' | 'heavy' | 'finisher' | 'shot' | 'boom' | 'zap' | 'brilliant';
+export type CombatSound = 'whoosh' | 'hit' | 'heavy' | 'finisher' | 'shot' | 'boom' | 'zap' | 'brilliant' | 'evolve';
 
 /** Punchy fighting-game sounds built from filtered noise and pitch-dropping thuds. */
 export function combatSfx(kind: CombatSound) {
@@ -328,6 +395,12 @@ export function combatSfx(kind: CombatSound) {
   else if (kind === 'boom') { noise(0, 0.7, 0.32, 1400, 50); thud(95, 0, 0.6, 0.35); }
   else if (kind === 'zap') { sweep(180, 1600, 0, 0.35, 0.04, 'sine'); sweep(2400, 300, 0.36, 0.22, 0.05); }
   else if (kind === 'brilliant') { noise(0, 0.3, 0.05, 3000, 400); [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.15 + i * 0.08, 0.3, 0.06)); }
+  else if (kind === 'evolve') {
+    sweep(160, 1400, 0, 1.6, 0.035, 'sine');
+    sweep(240, 2100, 0.1, 1.5, 0.02, 'triangle');
+    noise(1.62, 0.5, 0.12, 9000, 600);
+    [784, 988, 1175, 1568].forEach((f, i) => tone(f, 1.65 + i * 0.07, 0.45, 0.06));
+  }
   else if (kind === 'heavy') { noise(0.12, 0.35, 0.22, 4000, 120); thud(120, 0.12, 0.4, 0.28); thud(70, 0.2, 0.5, 0.2); }
   else {
     noise(0, 1.4, 0.12, 6000, 80);

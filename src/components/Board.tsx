@@ -5,7 +5,9 @@ import { BOARD_THEMES } from '../lib/levels';
 import type { Arrow, Marker } from '../lib/analysis';
 import { useProgress } from '../lib/store';
 import type { FinisherId } from '../lib/finishers';
-import { Announce, CallOut, FinisherFx, ImpactFx, ShotFx, type Impact, type Shot, type ShotKind } from './CombatFx';
+import { Announce, CallOut, EvolveFx, FinisherFx, ImpactFx, ShotFx, type Impact, type Shot, type ShotKind } from './CombatFx';
+import { FINISHERS } from '../lib/finishers';
+import { shout } from '../lib/announcer';
 import { combatSfx } from './ui';
 
 export interface BoardMove {
@@ -44,6 +46,8 @@ interface Sprite {
   holdAt?: Square;
   /** captured, waiting for the blow to land */
   dying?: boolean;
+  /** promoted this move: still shows the pawn until the evolution finishes */
+  evolveFrom?: string;
   ko?: { dx: number; dy: number };
 }
 
@@ -79,21 +83,34 @@ const dist = (a: string, b: string) => Math.abs(a.charCodeAt(0) - b.charCodeAt(0
 function diffSprites(prev: Sprite[], next: { sq: Square; key: string }[]) {
   const pool = prev.filter((s) => !s.ko && !s.dying);
   const out: Sprite[] = [];
-  const todo: { sq: Square; key: string }[] = [];
+  let todo: { sq: Square; key: string }[] = [];
   for (const n of next) {
     const i = pool.findIndex((s) => s.sq === n.sq && s.key === n.key);
-    if (i >= 0) out.push({ ...pool.splice(i, 1)[0], anim: undefined, from: undefined, holdAt: undefined });
+    if (i >= 0) out.push({ ...pool.splice(i, 1)[0], anim: undefined, from: undefined, holdAt: undefined, evolveFrom: undefined });
     else todo.push(n);
   }
   if (todo.length > 3) return { sprites: next.map((n) => ({ id: ++spriteSeq, ...n })), moved: [] as Sprite[], dead: [] as Sprite[], reset: true };
   const moved: Sprite[] = [];
+  // Promotion: a new piece on the last rank, and a pawn of that color gone from the rank before it.
+  todo = todo.filter((n) => {
+    const last = n.key[0] === 'w' ? '8' : '1';
+    const prevRank = n.key[0] === 'w' ? '7' : '2';
+    if (n.key[1] === 'P' || n.sq[1] !== last) return true;
+    const pawn = pool.find((s) => s.key === n.key[0] + 'P' && s.sq[1] === prevRank && Math.abs(s.sq.charCodeAt(0) - n.sq.charCodeAt(0)) <= 1);
+    if (!pawn) return true;
+    pool.splice(pool.indexOf(pawn), 1);
+    const s: Sprite = { ...pawn, key: n.key, sq: n.sq, anim: 'dash', from: pawn.sq, holdAt: undefined, evolveFrom: pawn.key };
+    moved.push(s);
+    out.push(s);
+    return false;
+  });
   for (const n of todo) {
     const same = pool.filter((s) => s.key === n.key);
     const cands = same.length ? same : pool.filter((s) => s.key === n.key[0] + 'P');
     const best = cands.sort((a, b) => dist(a.sq, n.sq) - dist(b.sq, n.sq))[0];
     if (best) {
       pool.splice(pool.indexOf(best), 1);
-      const s: Sprite = { ...best, key: n.key, sq: n.sq, anim: n.key[1] === 'N' ? 'hop' : 'dash', from: best.sq, holdAt: undefined };
+      const s: Sprite = { ...best, key: n.key, sq: n.sq, anim: n.key[1] === 'N' ? 'hop' : 'dash', from: best.sq, holdAt: undefined, evolveFrom: undefined };
       moved.push(s);
       out.push(s);
     } else out.push({ id: ++spriteSeq, ...n });
@@ -151,6 +168,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
   const [sprites, setSprites] = useState<Sprite[]>(() => piecesOf(chess).map((n) => ({ id: ++spriteSeq, ...n })));
   const [impacts, setImpacts] = useState<Impact[]>([]);
   const [shots, setShots] = useState<Shot[]>([]);
+  const [evolve, setEvolve] = useState<{ id: number; sq: Square; from: string; to: string } | null>(null);
   const [callout, setCallout] = useState<{ id: number; sq: Square; text: string; kind: 'check' | 'combo' | 'brilliant' } | null>(null);
   const [shake, setShake] = useState(0);
   const [mateFx, setMateFx] = useState<string | null>(null);
@@ -187,11 +205,15 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
       setImpacts([]);
       setShots([]);
       setCallout(null);
+      setEvolve(null);
       return;
     }
     const sound = settings.sound;
-    const victims: Sprite[] = dead.filter((d) => d.key[1] !== 'K').map((v) => ({ ...v, anim: undefined, dying: true }));
-    const attacker = moved.find((m) => victims.some((v) => v.key[0] !== m.key[0]));
+    const kingSq = chess.inCheck() && !chess.isCheckmate() ? piecesOf(chess).find((x) => x.key === chess.turn() + 'K')?.sq : undefined;
+    const candidates = dead.filter((d) => d.key[1] !== 'K');
+    const attacker = moved.find((m) => candidates.some((v) => v.key[0] !== m.key[0]));
+    // Pieces only get knocked out by an enemy; anything else (a takeback) just vanishes.
+    const victims: Sprite[] = attacker ? candidates.filter((v) => v.key[0] !== attacker.key[0]).map((v) => ({ ...v, anim: undefined, dying: true })) : [];
     for (const m of moved) if (m.sq === drop) m.anim = 'instant';
     settleMs.current = moved.some((m) => m.anim === 'hop') ? 320 : 260;
     let hitAt = 0;
@@ -227,16 +249,36 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
         requestAnimationFrame(() => setShake(power));
         later(() => setShake(0), 600);
         if (sound) combatSfx(power >= 3 ? 'heavy' : 'hit');
+        if (power >= 3 && !kingSq) shout(power === 4 ? 'Devastating!' : 'Brutal!');
       }, hitAt);
       later(() => setSprites((cur) => cur.filter((x) => !ids.has(x.id))), hitAt + 900);
     } else if (moved.length && sound) combatSfx('whoosh');
+    // Promotion: once the pawn lands, summon the new piece.
+    const promo = moved.find((m) => m.evolveFrom);
+    if (promo) {
+      const startAt = Math.max(hitAt, 300);
+      const ev = { id: promo.id, sq: promo.sq, from: PIECES[promo.evolveFrom!], to: PIECES[promo.key] };
+      later(() => {
+        setEvolve(ev);
+        if (sound) combatSfx('evolve');
+        shout('Ascension!', { delay: 1600 });
+      }, startAt);
+      later(() => {
+        setEvolve((cur) => (cur?.id === ev.id ? null : cur));
+        setSprites((cur) => cur.map((x) => (x.id === ev.id ? { ...x, evolveFrom: undefined } : x)));
+      }, startAt + 2800);
+      settleMs.current = startAt + 2700;
+    }
     setSprites([...next, ...victims]);
-    const kingSq = chess.inCheck() && !chess.isCheckmate() ? next.find((x) => x.key === chess.turn() + 'K')?.sq : undefined;
     setCallout(null);
     if (kingSq) {
       const c = { id: ++spriteSeq, sq: kingSq, text: victims.length ? 'COMBO!' : 'CHECK!', kind: (victims.length ? 'combo' : 'check') as 'combo' | 'check' };
-      if (hitAt) later(() => setCallout(c), hitAt);
-      else setCallout(c);
+      const show = () => {
+        setCallout(c);
+        if (victims.length) shout('Combo!');
+      };
+      if (hitAt) later(show, hitAt);
+      else show();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fen]);
@@ -252,6 +294,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
       setSprites((cur) => cur.map((x) => (x.sq === sq && !x.dying && !x.ko ? { ...x, anim: piece.type === 'n' ? 'flourish-n' : 'flourish' } : x)));
       setCallout({ id: ++spriteSeq, sq, text: celebrate.text, kind: 'brilliant' });
       if (settings.sound) combatSfx('brilliant');
+      shout(celebrate.text.replace(/!+$/, '!'));
       const style = ATTACK[piece.type.toUpperCase()];
       const sky = { x: at.x + (at.x < 4 ? 1.5 : -1.5), y: Math.max(-0.5, at.y - 3.5) };
       if (style.shot) {
@@ -272,6 +315,9 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
       setMateFx(fen);
       setShake(0);
       if (settings.sound) combatSfx('finisher');
+      const defeated = chess.turn() === orientation;
+      shout(`${FINISHERS[finisher].name.toLowerCase()}!`, { delay: 900, interrupt: true });
+      shout(defeated ? 'You have been finished.' : 'Checkmate! You win.', { delay: 2300 });
     }, Math.max(380, settleMs.current + 120));
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -280,6 +326,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
   useEffect(() => {
     if (!announce || !fx) return;
     setShownAnnounce(announce.key);
+    shout(announce.text.charAt(0) + announce.text.slice(1).toLowerCase(), { interrupt: true });
     const t = window.setTimeout(() => setShownAnnounce(null), 1350);
     return () => clearTimeout(t);
   }, [announce?.key, fx]);
@@ -407,11 +454,11 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
       {sprites.map((p) => {
         const { x, y } = squareXY(p.holdAt ?? p.sq, orientation);
         const hidden = drag?.active && drag.from === p.sq && !p.ko;
-        const cls = ['piece', p.anim, p.ko && 'ko', showMate && p.sq === checkSq && !p.ko && 'kingfx-' + finisher, fx && !p.ko && !showMate && p.sq === checkSq && 'checked'];
+        const cls = ['piece', p.anim, p.ko && 'ko', evolve?.id === p.id && 'evolving', showMate && p.sq === checkSq && !p.ko && 'kingfx-' + finisher, fx && !p.ko && !showMate && p.sq === checkSq && 'checked'];
         return (
           <img
             key={p.id}
-            src={PIECES[p.key]}
+            src={PIECES[p.evolveFrom ?? p.key]}
             className={cls.filter(Boolean).join(' ')}
             draggable={false}
             alt=""
@@ -483,6 +530,10 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
           })()}
         </div>
       )}
+      {fx && evolve && (() => {
+        const { x, y } = squareXY(evolve.sq, orientation);
+        return <EvolveFx key={evolve.id} x={x} y={y} from={evolve.from} to={evolve.to} piece={sprites.find((s) => s.id === evolve.id)?.key[1] ?? 'Q'} />;
+      })()}
       {showMate && mateXY && (
         <FinisherFx key={fen} id={finisher!} x={mateXY.x} y={mateXY.y} kingImg={PIECES[turn + 'K']} defeated={turn === orientation} />
       )}

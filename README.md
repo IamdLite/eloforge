@@ -5,7 +5,8 @@ A mobile-first, offline-capable PWA that takes you from ~900 to 2000 Elo with in
 ## Features
 
 - **Rating ladder**: six tiers (Pawn 800 → King 2100). Each has its own openings, puzzles and endgames, and a promotion exam (training rating + opening mastery + endgames cleared). Crossing a tier unlocks the next content, a title and a new board theme, with confetti.
-- **Openings**: 17 repertoires (Italian, Scandinavian, London, Caro-Kann, QGD, Ruy Lopez, Queen's Gambit, French, Najdorf + anti-Sicilians, KID, Scotch, Catalan, Nimzo, Berlin, Grünfeld, Open Sicilian…). Each has main lines, the opponent's deviations and the classic traps.
+- **Openings**: 33 repertoires. 17 core ones (Italian, Scandinavian, London, Caro-Kann, QGD, Ruy Lopez, Queen's Gambit, French, Najdorf + anti-Sicilians, KID, Scotch, Catalan, Nimzo, Berlin, Grünfeld, Open Sicilian…) count toward the tier exams; 16 extras (Vienna, Petrov, Slav, Evans Gambit, Pirc, English, Alapin, Dutch, Dragon, Alekhine, King's Indian Attack, Semi-Slav, Rossolimo, Queen's Indian, Sveshnikov, Marshall) are optional. Each has main lines, the opponent's deviations and the classic traps.
+- **Play it out to checkmate**: when the book line ends, the game continues on the same board against a "natural" opponent that picks human-like moves for your rating and sometimes something unexpected. Learn mode shows the plan with arrows; Drill mode grades every move.
   - **Learn**: guided, with live commentary and arrows for every move.
   - **Drill**: play from memory with no help. The opponent branches toward the lines you know least, and can throw Stockfish-picked **surprise moves** out of book. Each line needs 3 clean runs spaced over days (spaced repetition) to count as mastered.
 - **Tactics**: rated puzzles that adapt to your training rating, with a combo streak and theme training (forks, back-rank, smothered mate, sacrifices…). Classic patterns are hand-made; the rest were generated from engine games and verified so every solution move is the single best move.
@@ -13,6 +14,7 @@ A mobile-first, offline-capable PWA that takes you from ~900 to 2000 Elo with in
 - **Sparring**: play a bot from 800 to 2200 with a live coach. Every move is described and graded (best / inaccuracy / mistake / blunder), better moves and threats are shown as arrows, plus accuracy and an eval bar.
 - **"What would Magnus / Hikaru do?"** hints: engine candidates filtered through a style model. The Magnus-inspired hint favors positional squeeze, prophylaxis and good endgames; the Hikaru-inspired hint favors initiative, forcing moves and king attack.
 - **Strategy overlays**: hanging pieces and threat arrows, isolated / doubled / backward / passed pawns, outposts, king-zone danger.
+- **Combat mode**: pieces fight with signature attacks (the bishop draws a pistol, the rook fires a cannon, the queen charges a beam, the knight somersaults), promotions are summoned with an evolution-style animation, brilliant moves get a victory flourish, and every opening family has its own checkmate finisher. An announcer calls out "Fight!", "Finish it!" (forced mate on the board), "Combo!", "Brilliant!" and more. All toggleable in Profile.
 - **Gamification**: daily streak with streak freezes, daily XP goal, combo multiplier, badges, unlockable board themes.
 
 ## Development

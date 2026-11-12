@@ -38,7 +38,7 @@ export interface Progress {
   mates: number;
   games: { played: number; won: number };
   rewards: Reward[];
-  settings: { overlays: OverlayOptions; coach: boolean; sound: boolean; fx?: boolean };
+  settings: { overlays: OverlayOptions; coach: boolean; sound: boolean; fx?: boolean; voice?: boolean };
 }
 
 const KEY = 'eloforge-progress-v1';
@@ -163,7 +163,7 @@ export interface ExamStatus {
 
 export function examStatus(p: Progress, tier = p.tier): ExamStatus {
   const t = TIERS[Math.min(tier, TIERS.length - 1)];
-  const ids = OPENINGS.filter((o) => o.tier === tier).flatMap((o) => buildTree(o).paths.map((l) => lineId(o.id, l.index)));
+  const ids = OPENINGS.filter((o) => o.tier === tier && !o.extra).flatMap((o) => buildTree(o).paths.map((l) => lineId(o.id, l.index)));
   const mastered = ids.filter((id) => (p.lines[id]?.lvl ?? 0) >= MASTERED).length;
   const egs = ENDGAMES.filter((e) => e.tier === tier);
   const cleared = egs.filter((e) => (p.endgames[e.id]?.clears ?? 0) > 0).length;
@@ -284,7 +284,7 @@ export const actions = {
       p.settings.overlays[k] = v;
     });
   },
-  setSetting(k: 'coach' | 'sound' | 'fx', v: boolean) {
+  setSetting(k: 'coach' | 'sound' | 'fx' | 'voice', v: boolean) {
     update((p) => {
       p.settings[k] = v;
     });

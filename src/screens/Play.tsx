@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Chess, type Color, type Move } from 'chess.js';
 import Board, { ARROW, type BoardMove } from '../components/Board';
-import { CoachFeed, EvalBar, HintBar, OverlayBar, nextFeedId, useOverlay, useSfx, type FeedItem } from '../components/ui';
+import { CoachFeed, EvalBar, HintBar, OverlayBar, nextFeedId, useAnnouncer, useOverlay, useSfx, type FeedItem } from '../components/ui';
+import { shout } from '../lib/announcer';
 import { actions, useProgress } from '../lib/store';
 import { classify, describeMove, VERDICT_LABEL, type Verdict } from '../lib/commentary';
 import { engine, whiteCp, winPct, type EngineLine } from '../lib/engine';
@@ -91,6 +92,7 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
   const gameId = useRef(0);
 
   const [round, setRound] = useState(0);
+  const announcer = useAnnouncer();
   const [celebrate, setCelebrate] = useState<{ square: string; text: string; key: number } | null>(null);
   const fen = fens[fens.length - 1];
   const chess = new Chess(fen);
@@ -102,6 +104,8 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
     const u: Color = side === 'r' ? (Math.random() < 0.5 ? 'w' : 'b') : side;
     gameId.current++;
     setRound((r) => r + 1);
+    announcer.rearm();
+    announcer.call('FIGHT!');
     setUser(u);
     setFens([startFen ?? START_FEN]);
     setPlies([]);
@@ -124,6 +128,7 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
       if (!live) return;
       setPre(ls);
       setEvalCp(whiteCp(ls[0], fen));
+      announcer.report(ls[0].mate);
     }).catch(() => {});
     return () => {
       live = false;
@@ -215,6 +220,7 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
     const drop = Math.max(0, winPct(bestCp) - winPct(playedCp));
     setPlies((pl) => pl.map((x, i) => (i === idx ? { ...x, verdict: v, drop } : x)));
     if (v === 'brilliant') setCelebrate({ square: m.to, text: 'BRILLIANT!!', key: Date.now() });
+    else if (v === 'blunder') shout('Blunder!');
     setEvalCp(whiteCp(after[0], c.fen()));
     let text = notes.join(' ');
     if (['inaccuracy', 'mistake', 'blunder'].includes(v)) {
@@ -290,10 +296,10 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
       {p.settings.fx !== false && <HealthBars chess={chess} user={user} elo={elo} />}
       <div className="board-row">
         {showEval && <EvalBar cp={evalCp} orientation={user} />}
-        <Board fen={fen} orientation={user} interactive={myTurn && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} finisher={finisher} announce={{ text: 'FIGHT!', key: round }} celebrate={celebrate} />
+        <Board fen={fen} orientation={user} interactive={myTurn && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} finisher={finisher} announce={announcer.announce} celebrate={celebrate} />
       </div>
 
-      <div className="movelist plies">
+      <div className="movelist plies" ref={(el) => el && (el.scrollLeft = el.scrollWidth)}>
         {plies.length === 0 && 'Game start'}
         {plies.map((x, i) => (
           <span key={i} className={x.verdict ? VERDICT_LABEL[x.verdict].cls : ''}>
@@ -302,7 +308,14 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
         ))}
       </div>
 
-      {!result && myTurn && !thinking && <HintBar fen={fen} onHint={(_, a) => setArrows([a])} />}
+      <div className="dock">
+        {!result && <HintBar fen={fen} disabled={!myTurn || thinking} onHint={(_, a) => setArrows([a])} />}
+        {coach && !result && <button className="chip" onClick={takeback} disabled={thinking || fens.length < 2}>↶ Undo</button>}
+        <OverlayBar notes={overlay.notes}>
+          <label className="toggle"><input type="checkbox" checked={showEval} onChange={(e) => setShowEval(e.target.checked)} /> Eval bar</label>
+        </OverlayBar>
+        {!result && <button className="chip danger" onClick={resign}>🏳️ Resign</button>}
+      </div>
 
       {result && (
         <div className={`result card ${result.startsWith('🏆') ? 'win' : ''}`}>
@@ -318,13 +331,6 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
         </div>
       )}
 
-      <div className="row gap toolbar">
-        {coach && <button className="btn small" onClick={takeback} disabled={thinking || fens.length < 2}>↶ Takeback</button>}
-        {!result && <button className="btn small danger" onClick={resign}>🏳️ Resign</button>}
-        <label className="toggle"><input type="checkbox" checked={showEval} onChange={(e) => setShowEval(e.target.checked)} /> Eval</label>
-      </div>
-
-      <OverlayBar notes={overlay.notes} />
       <CoachFeed items={feed} />
     </div>
   );

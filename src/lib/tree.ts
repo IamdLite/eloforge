@@ -19,6 +19,8 @@ export interface OpeningDef {
   summary: string;
   ideas: string[];
   inspiredBy?: string;
+  /** optional repertoire: not required for the tier exam */
+  extra?: boolean;
   lines: OpeningLineDef[];
 }
 

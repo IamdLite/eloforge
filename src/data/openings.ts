@@ -2,8 +2,9 @@
 // most common deviations, offbeat tries and traps, so drills branch the way real games do.
 // Comment syntax: {text #e2e4} — #xxyy adds an arrow. Lines are merged into a tree.
 import type { OpeningDef } from '../lib/tree';
+import { EXTRA_OPENINGS } from './openings-extra.ts';
 
-export const OPENINGS: OpeningDef[] = [
+const CORE_OPENINGS: OpeningDef[] = [
   // ───────────────────────────── Tier 0 · Pawn (800–1100) ─────────────────────────────
   {
     id: 'italian',
@@ -301,5 +302,8 @@ export const OPENINGS: OpeningDef[] = [
     ],
   },
 ];
+
+/** Core openings first; within a tier the extra repertoire follows. */
+export const OPENINGS: OpeningDef[] = [...CORE_OPENINGS, ...EXTRA_OPENINGS].sort((a, b) => a.tier - b.tier);
 
 export const openingById = (id: string) => OPENINGS.find((o) => o.id === id);

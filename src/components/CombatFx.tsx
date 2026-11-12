@@ -219,3 +219,43 @@ export function FinisherFx({ id, x, y, kingImg, defeated }: FinisherProps) {
     </div>
   );
 }
+
+const PIECE_NAME: Record<string, string> = { Q: 'QUEEN', R: 'ROOK', B: 'BISHOP', N: 'KNIGHT' };
+
+/** Pawn promotion as a summoning: magic circle, light rays, the silhouette flickers pawn ⇄ piece, then a flash reveals it. */
+export function EvolveFx({ x, y, from, to, piece }: { x: number; y: number; from: string; to: string; piece: string }) {
+  // Promotion squares sit on the edge, so the summoning happens a little toward the center.
+  const style = { ['--kx' as string]: `clamp(30%, ${pct(x)}, 70%)`, ['--ky' as string]: `clamp(34%, ${pct(y)}, 66%)` } as CSSProperties;
+  const sparks = useMemo(() => Array.from({ length: 18 }, () => ({ a: rand(0, 360), d: rand(50, 140), s: rand(4, 9), delay: rand(1.6, 1.9) })), []);
+  return (
+    <div className="evo" style={style}>
+      <div className="evo-dim" />
+      <div className="fin-at">
+        <i className="evo-rays" />
+        <svg className="evo-circle" viewBox="-100 -100 200 200">
+          <circle r="92" />
+          <circle r="80" className="thin" />
+          <circle r="56" className="thin" />
+          <polygon points="0,-80 69,40 -69,40" />
+          <polygon points="0,80 69,-40 -69,-40" />
+          {Array.from({ length: 12 }, (_, i) => {
+            const a = (i / 12) * Math.PI * 2;
+            return <circle key={i} cx={Math.cos(a) * 86} cy={Math.sin(a) * 86} r="4" className="rune" />;
+          })}
+        </svg>
+        <div className="evo-sprite">
+          <img src={from} className="evo-a" alt="" />
+          <img src={to} className="evo-b" alt="" />
+        </div>
+        {sparks.map((s, i) => (
+          <i key={i} className="evo-spark" style={{ ['--a' as string]: `${s.a}deg`, ['--d' as string]: `${s.d}px`, width: s.s, height: s.s, animationDelay: `${s.delay}s` }} />
+        ))}
+      </div>
+      <div className="evo-flash" />
+      <div className="evo-title">
+        <div className="evo-name">ASCENSION!</div>
+        <div className="evo-sub">PAWN ➜ {PIECE_NAME[piece] ?? piece}</div>
+      </div>
+    </div>
+  );
+}
