@@ -14,7 +14,7 @@ import type { Arrow } from '../lib/analysis';
 
 /**
  * Every line is played all the way to checkmate, in three stages:
- *  1. guided: arrows and explanations for every move, against one variation of natural replies
+ *  1. guided: arrows and explanations for every move; each run takes the next variation of natural replies, in order
  *  2. from memory: the same game again, no help
  *  3. final exam: a random variation (or combination of them); a perfect run masters the line
  */
@@ -50,12 +50,12 @@ function plan(op: OpeningDef, paths: LinePath[], conts: Record<string, Cont | nu
   const s = stat(target);
   const stage = want.stage ?? (mode === 'learn' ? 1 : nextStage(s?.lvl ?? 0));
   const all = allPaths(conts?.[target]);
-  const random = () => all[Math.floor(Math.random() * all.length)];
   let choices = want.choices;
   if (!choices) {
-    if (stage === 1) choices = all.find((c) => !s?.seen?.includes(pathKey(c))) ?? random();
+    // Guided games walk through the variations in order; only the exam picks one at random.
+    if (stage === 1) choices = all[(all.findIndex((c) => s?.path && pathKey(c) === pathKey(s.path)) + 1) % all.length];
     else if (stage === 2) choices = s?.path && all.some((c) => pathKey(c) === pathKey(s.path!)) ? s.path : all[0];
-    else choices = random();
+    else choices = all[Math.floor(Math.random() * all.length)];
   }
   return { n: want.n, target, stage, choices };
 }
@@ -322,7 +322,9 @@ function Session({ op, paths, cont, run, begin }: {
           {stage === 1 && (
             <>
               <h3>🎓 Guided game complete</h3>
-              <p>Stage 2: replay this exact game from memory, with the same replies and no arrows.</p>
+              <p>{variation < variations
+                ? `Your opponent can also answer differently: variation ${variation + 1} of ${variations} is next. Or go to stage 2 and replay this exact game from memory.`
+                : 'Stage 2: replay this exact game from memory, with the same replies and no arrows.'}</p>
             </>
           )}
           {stage === 2 && (mistakes === 0
@@ -332,13 +334,14 @@ function Session({ op, paths, cont, run, begin }: {
             ? <><h3>🏆 Line mastered!</h3><p>A perfect game from the opening to checkmate. It comes back for a quick review in a week.</p></>
             : <><h3>❌ {mistakes} mistake{mistakes > 1 ? 's' : ''}: not yet</h3><p>The exam needs a perfect run. Study this variation guided, or retry the exam with a new random variation.</p></>)}
           <div className="row gap wrap">
-            {stage === 1 && <button className="btn primary" onClick={() => begin({ target, stage: 2, choices })}>🧠 Stage 2 ›</button>}
+            {stage === 1 && variation < variations && <button className="btn primary" onClick={() => begin({ target, stage: 1 })}>🎓 Variation {variation + 1}/{variations} ›</button>}
+            {stage === 1 && <button className={`btn ${variation < variations ? '' : 'primary'}`} onClick={() => begin({ target, stage: 2, choices })}>🧠 Stage 2 ›</button>}
             {stage === 2 && mistakes === 0 && <button className="btn primary" onClick={() => begin({ target, stage: 3 })}>🏆 Final exam ›</button>}
             {stage === 2 && mistakes > 0 && <button className="btn primary" onClick={() => begin({ target, stage: 2, choices })}>↺ Replay</button>}
             {stage === 3 && mistakes === 0 && <button className="btn primary" onClick={() => begin({ stage: undefined, target: undefined })}>Next line ›</button>}
             {stage === 3 && mistakes > 0 && <button className="btn primary" onClick={() => begin({ target, stage: 3 })}>↺ Retry exam</button>}
             {stage > 1 && mistakes > 0 && <button className="btn" onClick={() => begin({ target, stage: 1, choices })}>🎓 Guided</button>}
-            {stage === 1 && <button className="btn" onClick={() => begin({ target, stage: 1 })}>↺ Again</button>}
+            {stage === 1 && <button className="btn" onClick={() => begin({ target, stage: 1, choices })}>↺ Again</button>}
           </div>
         </div>
       )}
