@@ -9,7 +9,7 @@ A mobile-first, offline-capable PWA that takes you from ~900 to 2000 Elo with in
 - **Every line to checkmate, in 3 stages**: each book line continues past the opening to checkmate against "natural" club-player replies, with up to three variations where the opponent has more than one natural answer (generated offline with Stockfish).
   - **Stage 1, guided**: arrows and an explanation for every move, from 1.e4 to mate. Each guided game takes the next variation in order (1, 2, 3, then back to 1).
   - **Stage 2, from memory**: the same game again, same replies, no help.
-  - **Stage 3, final exam**: the opponent picks a random variation; a perfect game, with no mistakes, peeks or hints, masters the line. Mastered lines come back for a review a week later.
+  - **Stage 3, final exam**: the opponent picks a random variation; reaching mate with at most 5 mistakes (wrong moves, peeks or hints) masters the line. Mastered lines come back for a review a week later.
 - **Tactics**: rated puzzles that adapt to your training rating, with a combo streak and theme training (forks, back-rank, smothered mate, sacrifices…). Classic patterns are hand-made; the rest were generated from engine games and verified so every solution move is the single best move.
 - **Endgames**: 18 lessons (Queen/Rook mates, opposition, Lucena, Philidor, Vancura, opposite bishops, B+N mate…). Learn the principles, watch a demo, then win or hold against full-strength Stockfish.
 - **Sparring**: play a bot from 800 to 2200 with a live coach. Every move is described and graded (best / inaccuracy / mistake / blunder), better moves and threats are shown as arrows, plus accuracy and an eval bar.

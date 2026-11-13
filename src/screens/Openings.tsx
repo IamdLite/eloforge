@@ -2,7 +2,7 @@ import { useNav } from '../App';
 import { ProgressBar } from '../components/ui';
 import { OPENINGS, openingById } from '../data/openings';
 import { TIERS } from '../lib/levels';
-import { MASTERED, useProgress, type Progress } from '../lib/store';
+import { EXAM_MISTAKES, MASTERED, useProgress, type Progress } from '../lib/store';
 import { buildTree, lineId, type OpeningDef } from '../lib/tree';
 import { FINISHERS, finisherFor } from '../lib/finishers';
 
@@ -82,7 +82,7 @@ export function OpeningDetail({ id }: { id: string }) {
           return <p className="finisher-tag" style={{ color: f.color }}>{f.icon} Signature finisher: <b>{f.name}</b></p>;
         })()}
         <ProgressBar value={m.mastered} max={m.total} color={t.color} />
-        <small className="muted">{m.mastered}/{m.total} lines mastered. Every line is played to checkmate in 3 stages: 🎓 guided, 🧠 the same game from memory, 🏆 a random variation with no mistakes.</small>
+        <small className="muted">{m.mastered}/{m.total} lines mastered. Every line is played to checkmate in 3 stages: 🎓 guided, 🧠 the same game from memory, 🏆 a random variation with at most {EXAM_MISTAKES} mistakes.</small>
         <div className="row gap">
           <button className="btn" onClick={() => go({ name: 'opening-train', id, mode: 'learn' })}>🎓 Learn a line</button>
           <button className="btn primary" onClick={() => go({ name: 'opening-train', id, mode: 'drill' })}>▶ Continue training</button>

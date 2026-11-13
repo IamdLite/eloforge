@@ -6,7 +6,7 @@ import Board, { ARROW, type BoardMove } from '../components/Board';
 import { CoachFeed, HintBar, OverlayBar, nextFeedId, blunderSting, useAnnouncer, useOverlay, useSfx, type FeedItem } from '../components/ui';
 import { openingById } from '../data/openings';
 import { START_FEN, buildTree, lineId, type LinePath, type OpeningDef } from '../lib/tree';
-import { MASTERED, actions, getProgress, useProgress } from '../lib/store';
+import { EXAM_MISTAKES, MASTERED, actions, getProgress, useProgress } from '../lib/store';
 import { engine, winPct } from '../lib/engine';
 import { lineScore } from '../lib/bot';
 import { allPaths, buildScript, pathKey, useContinuations, type Cont } from '../lib/continuation';
@@ -16,7 +16,7 @@ import type { Arrow } from '../lib/analysis';
  * Every line is played all the way to checkmate, in three stages:
  *  1. guided: arrows and explanations for every move; each run takes the next variation of natural replies, in order
  *  2. from memory: the same game again, no help
- *  3. final exam: a random variation (or combination of them); a perfect run masters the line
+ *  3. final exam: a random variation (or combination of them); mate with at most EXAM_MISTAKES mistakes masters the line
  */
 type Stage = 1 | 2 | 3;
 const STAGES: Record<Stage, { icon: string; name: string }> = {
@@ -108,6 +108,7 @@ function Session({ op, paths, cont, run, begin }: {
 
   const [ply, setPly] = useState(0);
   const [mistakes, setMistakes] = useState(0);
+  const passed = stage === 3 ? mistakes <= EXAM_MISTAKES : mistakes === 0;
   const [showMove, setShowMove] = useState(false);
   const [done, setDone] = useState(false);
   const [finalAlt, setFinalAlt] = useState<{ fen: string; last: [string, string]; san: string } | null>(null);
@@ -121,7 +122,7 @@ function Session({ op, paths, cont, run, begin }: {
       ? `${op.name}: ${op.summary} Follow the arrows through the opening and on to checkmate.`
       : stage === 2
         ? 'Stage 2: replay the game you were guided through, from memory. Same opponent moves, no arrows.'
-        : `Final exam: your opponent picks a random variation${variations > 1 ? ` (${variations} possible)` : ''}. Play it to mate with no mistakes to master the line.`,
+        : `Final exam: your opponent picks a random variation${variations > 1 ? ` (${variations} possible)` : ''}. Play it to mate with at most ${EXAM_MISTAKES} mistakes to master the line.`,
   }]);
 
   const fen = finalAlt?.fen ?? (ply ? script[ply - 1].fen : START_FEN);
@@ -171,7 +172,7 @@ function Session({ op, paths, cont, run, begin }: {
     if (done || !script.length || ply < script.length) return;
     setDone(true);
     actions.stage(lineId(op.id, target), stage, mistakes, choices, pathKey(choices));
-    sfx(mistakes ? 'bad' : 'good');
+    sfx(passed ? 'good' : 'bad');
   }, [ply]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onMove = (mv: BoardMove) => {
@@ -210,7 +211,7 @@ function Session({ op, paths, cont, run, begin }: {
       who: 'coach',
       verdict: 'mistake',
       san: m.san,
-      text: `Not the ${what} you trained. It was ${expected.san}: ${expected.comment} Play it to continue.${stage === 3 && !mistakes ? ' The exam needs a perfect run: finish the game to learn it, then try again.' : ''}`,
+      text: `Not the ${what} you trained. It was ${expected.san}: ${expected.comment} Play it to continue.${stage === 3 ? (mistakes < EXAM_MISTAKES ? ` Mistake ${mistakes + 1} of ${EXAM_MISTAKES} allowed.` : mistakes === EXAM_MISTAKES ? ` That's more than ${EXAM_MISTAKES} mistakes: finish the game to learn it, then try again.` : '') : ''}`,
     });
     if (!expected.book && !mistakes && c.moves().length) {
       // Was it at least a reasonable idea?
@@ -259,7 +260,8 @@ function Session({ op, paths, cont, run, begin }: {
           <small className="muted stage-meta">
             {' '}move {Math.max(0, Math.min(myMovesPlayed, learnerMoves))}/{learnerMoves}
             {variations > 1 && ` · variation ${variation}/${variations}`}
-            {stage > 1 && ` · ${mistakes ? `${mistakes} mistake${mistakes > 1 ? 's' : ''}` : 'clean'}`}
+            {stage === 2 && ` · ${mistakes ? `${mistakes} mistake${mistakes > 1 ? 's' : ''}` : 'clean'}`}
+            {stage === 3 && ` · ${mistakes}/${EXAM_MISTAKES} mistakes`}
           </small>
         </div>
         <div className="dots">{Array.from({ length: MASTERED }, (_, i) => <span key={i} className={`dot ${i < lvl ? 'on' : ''}`} />)}</div>
@@ -318,7 +320,7 @@ function Session({ op, paths, cont, run, begin }: {
       </div>
 
       {done && (
-        <div className={`result card ${mistakes === 0 ? 'win' : ''}`}>
+        <div className={`result card ${passed ? 'win' : ''}`}>
           {stage === 1 && (
             <>
               <h3>🎓 Guided game complete</h3>
@@ -328,19 +330,19 @@ function Session({ op, paths, cont, run, begin }: {
             </>
           )}
           {stage === 2 && (mistakes === 0
-            ? <><h3>🧠 Replayed from memory!</h3><p>Final stage: your opponent picks a random variation. Play it to mate without a mistake to master the line.</p></>
+            ? <><h3>🧠 Replayed from memory!</h3><p>Final stage: your opponent picks a random variation. Play it to mate with at most {EXAM_MISTAKES} mistakes to master the line.</p></>
             : <><h3>🔁 {mistakes} mistake{mistakes > 1 ? 's' : ''}</h3><p>Stage 2 needs a clean replay. Go again, or walk through it guided once more.</p></>)}
-          {stage === 3 && (mistakes === 0
-            ? <><h3>🏆 Line mastered!</h3><p>A perfect game from the opening to checkmate. It comes back for a quick review in a week.</p></>
-            : <><h3>❌ {mistakes} mistake{mistakes > 1 ? 's' : ''}: not yet</h3><p>The exam needs a perfect run. Study this variation guided, or retry the exam with a new random variation.</p></>)}
+          {stage === 3 && (passed
+            ? <><h3>🏆 Line mastered!</h3><p>{mistakes ? `Checkmate with ${mistakes} mistake${mistakes > 1 ? 's' : ''} (${EXAM_MISTAKES} allowed).` : 'A perfect game from the opening to checkmate.'} It comes back for a quick review in a week.</p></>
+            : <><h3>❌ {mistakes} mistakes: not yet</h3><p>The exam allows {EXAM_MISTAKES} mistakes. Study this variation guided, or retry the exam with a new random variation.</p></>)}
           <div className="row gap wrap">
             {stage === 1 && variation < variations && <button className="btn primary" onClick={() => begin({ target, stage: 1 })}>🎓 Variation {variation + 1}/{variations} ›</button>}
             {stage === 1 && <button className={`btn ${variation < variations ? '' : 'primary'}`} onClick={() => begin({ target, stage: 2, choices })}>🧠 Stage 2 ›</button>}
             {stage === 2 && mistakes === 0 && <button className="btn primary" onClick={() => begin({ target, stage: 3 })}>🏆 Final exam ›</button>}
             {stage === 2 && mistakes > 0 && <button className="btn primary" onClick={() => begin({ target, stage: 2, choices })}>↺ Replay</button>}
-            {stage === 3 && mistakes === 0 && <button className="btn primary" onClick={() => begin({ stage: undefined, target: undefined })}>Next line ›</button>}
-            {stage === 3 && mistakes > 0 && <button className="btn primary" onClick={() => begin({ target, stage: 3 })}>↺ Retry exam</button>}
-            {stage > 1 && mistakes > 0 && <button className="btn" onClick={() => begin({ target, stage: 1, choices })}>🎓 Guided</button>}
+            {stage === 3 && passed && <button className="btn primary" onClick={() => begin({ stage: undefined, target: undefined })}>Next line ›</button>}
+            {stage === 3 && !passed && <button className="btn primary" onClick={() => begin({ target, stage: 3 })}>↺ Retry exam</button>}
+            {stage > 1 && !passed && <button className="btn" onClick={() => begin({ target, stage: 1, choices })}>🎓 Guided</button>}
             {stage === 1 && <button className="btn" onClick={() => begin({ target, stage: 1, choices })}>↺ Again</button>}
           </div>
         </div>

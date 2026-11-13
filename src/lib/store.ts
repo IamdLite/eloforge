@@ -18,7 +18,7 @@ export interface Reward {
 
 /**
  * Mastery of one line, in three stages: 1 = played through guided, 2 = replayed from memory,
- * 3 (MASTERED) = a random variation played to mate without a single mistake.
+ * 3 (MASTERED) = a random variation played to mate with at most EXAM_MISTAKES mistakes.
  */
 export interface LineStat {
   lvl: number;
@@ -66,6 +66,8 @@ export interface Fighter {
 
 const KEY = 'eloforge-progress-v1';
 export const MASTERED = 3;
+/** Mistakes (wrong moves, peeks, hints) the final exam forgives. */
+export const EXAM_MISTAKES = 5;
 const REVIEW_AFTER = 7 * 86400e3;
 
 const fresh = (): Progress => ({
@@ -265,13 +267,13 @@ export const actions = {
         rec.lvl = Math.max(rec.lvl, 1);
         rec.path = choices;
       } else if (stage === 2 && clean) rec.lvl = Math.max(rec.lvl, 2);
-      else if (stage === 3) rec.lvl = clean ? MASTERED : Math.min(rec.lvl, 2);
+      else if (stage === 3) rec.lvl = mistakes <= EXAM_MISTAKES ? MASTERED : Math.min(rec.lvl, 2);
       // Mastered lines come back for a review a week later; unfinished ones are ready right away.
       rec.due = rec.lvl >= MASTERED ? Date.now() + REVIEW_AFTER : Date.now();
       const masteredOpenings = OPENINGS.filter((o) => buildTree(o).paths.every((l) => (p.lines[lineId(o.id, l.index)]?.lvl ?? 0) >= MASTERED)).length;
       if (masteredOpenings >= 1) award(p, 'opening-1');
       if (masteredOpenings >= 5) award(p, 'opening-5');
-      activity(p, stage === 3 && clean ? 60 : clean ? 25 : 8);
+      activity(p, stage === 3 && mistakes <= EXAM_MISTAKES ? (clean ? 60 : 40) : clean ? 25 : 8);
     });
   },
   setProfile(name: string, avatar: string) {
