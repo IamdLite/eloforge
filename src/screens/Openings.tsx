@@ -82,10 +82,10 @@ export function OpeningDetail({ id }: { id: string }) {
           return <p className="finisher-tag" style={{ color: f.color }}>{f.icon} Signature finisher: <b>{f.name}</b></p>;
         })()}
         <ProgressBar value={m.mastered} max={m.total} color={t.color} />
-        <small className="muted">{m.mastered}/{m.total} lines mastered (3 clean repetitions each, spaced over days)</small>
+        <small className="muted">{m.mastered}/{m.total} lines mastered. Every line is played to checkmate in 3 stages: 🎓 guided, 🧠 the same game from memory, 🏆 a random variation with no mistakes.</small>
         <div className="row gap">
-          <button className="btn" onClick={() => go({ name: 'opening-train', id, mode: 'learn' })}>🎓 Learn</button>
-          <button className="btn primary" onClick={() => go({ name: 'opening-train', id, mode: 'drill' })}>🧠 Drill from memory</button>
+          <button className="btn" onClick={() => go({ name: 'opening-train', id, mode: 'learn' })}>🎓 Learn a line</button>
+          <button className="btn primary" onClick={() => go({ name: 'opening-train', id, mode: 'drill' })}>▶ Continue training</button>
         </div>
       </div>
 
@@ -94,7 +94,8 @@ export function OpeningDetail({ id }: { id: string }) {
         {paths.map((l) => {
           const s = p.lines[lineId(o.id, l.index)];
           const lvl = s?.lvl ?? 0;
-          const due = s && s.due <= Date.now() && lvl < 4;
+          const due = s && lvl >= MASTERED && s.due <= Date.now();
+          const next = lvl <= 0 ? '🎓 Stage 1' : lvl === 1 ? '🧠 Stage 2' : lvl === 2 ? '🏆 Exam' : '🔁 Review';
           return (
             <div key={l.index} className="line-row card">
               <div className="line-info">
@@ -102,12 +103,12 @@ export function OpeningDetail({ id }: { id: string }) {
                 <small className="muted">{l.nodes.slice(0, 8).map((n, i) => (i % 2 === 0 ? `${i / 2 + 1}.${n.san}` : n.san)).join(' ')}{l.nodes.length > 8 ? ' …' : ''}</small>
                 <div className="dots">
                   {Array.from({ length: MASTERED }, (_, i) => <span key={i} className={`dot ${i < lvl ? 'on' : ''}`} />)}
-                  {due && <span className="pill small">due</span>}
+                  {due && <span className="pill small">review due</span>}
                 </div>
               </div>
               <div className="line-actions">
-                <button className="btn small" onClick={() => go({ name: 'opening-train', id, mode: 'learn', line: l.index })}>Learn</button>
-                <button className="btn small primary" onClick={() => go({ name: 'opening-train', id, mode: 'drill', line: l.index })}>Drill</button>
+                {lvl > 0 && <button className="btn small" onClick={() => go({ name: 'opening-train', id, mode: 'learn', line: l.index })}>Guided</button>}
+                <button className="btn small primary" onClick={() => go({ name: 'opening-train', id, mode: 'drill', line: l.index })}>{next}</button>
               </div>
             </div>
           );

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Chess, type Color, type Move } from 'chess.js';
+import { useNav } from '../App';
 import Board, { ARROW, type BoardMove } from '../components/Board';
-import { CoachFeed, EvalBar, HintBar, OverlayBar, nextFeedId, useAnnouncer, useOverlay, useSfx, type FeedItem } from '../components/ui';
-import { shout } from '../lib/announcer';
+import { CoachFeed, EvalBar, HintBar, OverlayBar, nextFeedId, blunderSting, useAnnouncer, useOverlay, useSfx, type FeedItem } from '../components/ui';
 import { actions, useProgress } from '../lib/store';
 import { classify, describeMove, VERDICT_LABEL, type Verdict } from '../lib/commentary';
 import { engine, whiteCp, winPct, type EngineLine } from '../lib/engine';
@@ -14,7 +14,7 @@ const MATERIAL: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
 const material = (c: Chess, color: Color) => c.board().flat().reduce((n, x) => n + (x && x.color === color ? MATERIAL[x.type] : 0), 0);
 
 /** Fighting-game health bars: each side's material out of the starting 39. */
-function HealthBars({ chess, user, elo }: { chess: Chess; user: Color; elo: number }) {
+export function HealthBars({ chess, user, them, me = 'YOU' }: { chess: Chess; user: Color; them: string; me?: string }) {
   const bar = (color: Color, name: string, right: boolean) => {
     const hp = Math.min(100, (material(chess, color) / 39) * 100);
     return (
@@ -29,9 +29,9 @@ function HealthBars({ chess, user, elo }: { chess: Chess; user: Color; elo: numb
   };
   return (
     <div className="hpbars">
-      {bar(user, 'YOU', false)}
+      {bar(user, me, false)}
       <span className="hp-vs">VS</span>
-      {bar(user === 'w' ? 'b' : 'w', `BOT ${elo}`, true)}
+      {bar(user === 'w' ? 'b' : 'w', them, true)}
     </div>
   );
 }
@@ -70,6 +70,7 @@ async function botMove(fen: string, elo: number): Promise<string> {
 
 export default function Play({ startFen, startSide, opening }: { startFen?: string; startSide?: 'w' | 'b'; opening?: string }) {
   const p = useProgress();
+  const { go } = useNav();
   const sfx = useSfx();
   const suggested = BOT_LEVELS.reduce((a, b) => (Math.abs(b - (p.puzzleRating + 100)) < Math.abs(a - (p.puzzleRating + 100)) ? b : a));
   const [elo, setElo] = useState(suggested);
@@ -220,7 +221,7 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
     const drop = Math.max(0, winPct(bestCp) - winPct(playedCp));
     setPlies((pl) => pl.map((x, i) => (i === idx ? { ...x, verdict: v, drop } : x)));
     if (v === 'brilliant') setCelebrate({ square: m.to, text: 'BRILLIANT!!', key: Date.now() });
-    else if (v === 'blunder') shout('Blunder!');
+    else if (v === 'blunder') blunderSting();
     setEvalCp(whiteCp(after[0], c.fen()));
     let text = notes.join(' ');
     if (['inaccuracy', 'mistake', 'blunder'].includes(v)) {
@@ -278,6 +279,10 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
           <button className="btn primary block big" onClick={start}>▶ Start game</button>
         </div>
         <p className="muted small center">Record: {p.games.won} wins / {p.games.played} games</p>
+        <button className="card battle-cta" onClick={() => go({ name: 'battle' })}>
+          <span className="q-icon">🤜</span>
+          <div><b>Battle a friend instead</b><small className="muted">Send an invite link and play live, combat moves and finishers on both screens.</small></div>
+        </button>
       </div>
     );
   }
@@ -293,7 +298,7 @@ export default function Play({ startFen, startSide, opening }: { startFen?: stri
         {accuracy !== null && <div className="pill">🎯 {accuracy}%</div>}
       </div>
 
-      {p.settings.fx !== false && <HealthBars chess={chess} user={user} elo={elo} />}
+      {p.settings.fx !== false && <HealthBars chess={chess} user={user} them={`BOT ${elo}`} />}
       <div className="board-row">
         {showEval && <EvalBar cp={evalCp} orientation={user} />}
         <Board fen={fen} orientation={user} interactive={myTurn && !thinking} onMove={onMove} arrows={[...overlay.arrows, ...arrows]} markers={overlay.markers} lastMove={lastMove} theme={p.theme} finisher={finisher} announce={announcer.announce} celebrate={celebrate} />

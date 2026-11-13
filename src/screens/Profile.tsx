@@ -1,3 +1,4 @@
+import { BattleRecord, ProfileForm } from './Battle';
 import { useEffect, useMemo, useState } from 'react';
 import { Chess } from 'chess.js';
 import { BADGES, BOARD_THEMES, TIERS } from '../lib/levels';
@@ -135,6 +136,13 @@ export default function Profile() {
         <div><b>{p.games.won}/{p.games.played}</b><small>Bot games won</small></div>
       </div>
       <p className="muted small center">Current title: <b style={{ color: tier.color }}>{p.tier > 0 ? TIERS[p.tier - 1].reward.title : 'Newcomer'}</b></p>
+
+      <h2 className="section-title">Fighter profile</h2>
+      <div className="card">
+        {p.profile && <div className="fighter-card big"><span className="avatar">{p.profile.avatar}</span><b>{p.profile.name}</b></div>}
+        <ProfileForm cta={p.profile ? 'Update profile' : 'Create profile'} />
+      </div>
+      <BattleRecord />
 
       <h2 className="section-title">Badges</h2>
       <div className="badges">

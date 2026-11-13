@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { shout } from '../lib/announcer';
 import { Chess } from 'chess.js';
 import { computeOverlay, type Arrow, type Marker, type OverlayOptions } from '../lib/analysis';
-import { actions, useProgress } from '../lib/store';
+import { actions, getProgress, useProgress } from '../lib/store';
 import { PERSONAS, personaHint, type Persona, type PersonaHint } from '../lib/personas';
 import { VERDICT_LABEL, type Verdict } from '../lib/commentary';
 import { formatScore } from '../lib/engine';
@@ -299,15 +299,28 @@ export function RewardLayer() {
 }
 
 let audio: AudioContext | null = null;
-function tone(freq: number, start: number, dur: number, gain = 0.06) {
+let master: AudioNode | null = null;
+/** Everything goes through one compressor so stacked effects punch without clipping. */
+function out(): AudioNode {
+  if (!master && audio) {
+    const c = audio.createDynamicsCompressor();
+    c.threshold.value = -14;
+    c.ratio.value = 6;
+    c.connect(audio.destination);
+    master = c;
+  }
+  return master ?? audio!.destination;
+}
+
+function tone(freq: number, start: number, dur: number, gain = 0.06, type: OscillatorType = 'sine') {
   if (!audio) return;
   const o = audio.createOscillator();
   const g = audio.createGain();
   o.frequency.value = freq;
-  o.type = 'sine';
+  o.type = type;
   g.gain.setValueAtTime(gain, audio.currentTime + start);
   g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + start + dur);
-  o.connect(g).connect(audio.destination);
+  o.connect(g).connect(out());
   o.start(audio.currentTime + start);
   o.stop(audio.currentTime + start + dur);
 }
@@ -335,7 +348,7 @@ export function sfx(kind: 'move' | 'capture' | 'good' | 'bad') {
   else { tone(196, 0, 0.25, 0.07); }
 }
 
-function noise(start: number, dur: number, gain: number, from: number, to: number) {
+function noise(start: number, dur: number, gain: number, from: number, to: number, type: BiquadFilterType = 'lowpass') {
   if (!audio) return;
   const len = Math.ceil(audio.sampleRate * dur);
   const buf = audio.createBuffer(1, len, audio.sampleRate);
@@ -344,14 +357,37 @@ function noise(start: number, dur: number, gain: number, from: number, to: numbe
   const src = audio.createBufferSource();
   src.buffer = buf;
   const f = audio.createBiquadFilter();
-  f.type = 'lowpass';
+  f.type = type;
   const t0 = audio.currentTime + start;
   f.frequency.setValueAtTime(from, t0);
   f.frequency.exponentialRampToValueAtTime(to, t0 + dur);
   const g = audio.createGain();
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  src.connect(f).connect(g).connect(audio.destination);
+  src.connect(f).connect(g).connect(out());
+  src.start(t0);
+}
+
+/** Noise that swells in instead of decaying: wind, rumble, a charging spell. */
+function swell(start: number, dur: number, gain: number, from: number, to: number, type: BiquadFilterType = 'bandpass') {
+  if (!audio) return;
+  const len = Math.ceil(audio.sampleRate * dur);
+  const buf = audio.createBuffer(1, len, audio.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const src = audio.createBufferSource();
+  src.buffer = buf;
+  const f = audio.createBiquadFilter();
+  f.type = type;
+  f.Q.value = 2;
+  const t0 = audio.currentTime + start;
+  f.frequency.setValueAtTime(from, t0);
+  f.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+  const g = audio.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(gain, t0 + dur * 0.8);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(f).connect(g).connect(out());
   src.start(t0);
 }
 
@@ -364,7 +400,7 @@ function thud(freq: number, start: number, dur: number, gain: number) {
   o.frequency.exponentialRampToValueAtTime(freq / 4, t0 + dur);
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  o.connect(g).connect(audio.destination);
+  o.connect(g).connect(out());
   o.start(t0);
   o.stop(t0 + dur);
 }
@@ -379,35 +415,89 @@ function sweep(from: number, to: number, start: number, dur: number, gain: numbe
   o.frequency.exponentialRampToValueAtTime(to, t0 + dur);
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  o.connect(g).connect(audio.destination);
+  o.connect(g).connect(out());
   o.start(t0);
   o.stop(t0 + dur);
 }
 
-export type CombatSound = 'whoosh' | 'hit' | 'heavy' | 'finisher' | 'shot' | 'boom' | 'zap' | 'brilliant' | 'evolve';
+/** A struck metal bell or gong: inharmonic partials with long tails. */
+function bell(freq: number, start: number, dur: number, gain: number) {
+  [1, 2.76, 5.4, 8.93].forEach((r, i) => tone(freq * r, start, dur / (1 + i * 0.6), gain / (1 + i * 1.4)));
+}
+
+/** Short brass-like stab (stacked detuned saws). */
+function stab(freqs: number[], start: number, dur: number, gain: number) {
+  freqs.forEach((f) => { tone(f, start, dur, gain, 'sawtooth'); tone(f * 1.006, start, dur, gain * 0.7, 'square'); });
+}
+
+export type CombatSound =
+  | 'whoosh' | 'hit' | 'heavy' | 'finisher' | 'shot' | 'boom' | 'zap' | 'brilliant' | 'evolve'
+  | 'punch' | 'salto' | 'slam' | 'ko' | 'check' | 'combo' | 'gong' | 'cheer' | 'blunder';
+
+export type FinisherSound = 'inferno' | 'glacier' | 'thunder' | 'vortex' | 'blade' | 'meteor' | 'venom' | 'quake';
 
 /** Punchy fighting-game sounds built from filtered noise and pitch-dropping thuds. */
 export function combatSfx(kind: CombatSound) {
   ensureAudio();
   if (kind === 'whoosh') noise(0, 0.18, 0.05, 3000, 300);
+  // pawn headbutt: a quick lunge and a dry knock
+  else if (kind === 'punch') { noise(0, 0.1, 0.05, 4000, 800); thud(260, 0.2, 0.09, 0.22); noise(0.2, 0.06, 0.12, 5000, 900); }
+  // knight salto: three spins through the air, then the landing
+  else if (kind === 'salto') { [0, 0.11, 0.22].forEach((t, i) => noise(t, 0.12, 0.05 + i * 0.015, 5000 - i * 900, 500, 'bandpass')); thud(110, 0.42, 0.3, 0.3); }
+  // king slam: wind-up and a ground-shaking stomp
+  else if (kind === 'slam') { sweep(90, 300, 0, 0.35, 0.03, 'triangle'); thud(70, 0.38, 0.7, 0.4); noise(0.38, 0.5, 0.18, 1200, 60); }
   else if (kind === 'hit') { noise(0.12, 0.12, 0.16, 2500, 200); thud(160, 0.12, 0.18, 0.18); }
-  else if (kind === 'shot') { noise(0, 0.08, 0.35, 9000, 1500); thud(320, 0, 0.08, 0.2); noise(0.07, 0.3, 0.05, 2500, 200); }
+  else if (kind === 'ko') { sweep(1400, 220, 0.05, 0.6, 0.035, 'sine'); thud(60, 0.62, 0.25, 0.14); }
+  else if (kind === 'shot') { noise(0, 0.08, 0.35, 9000, 1500); thud(320, 0, 0.08, 0.2); noise(0.07, 0.3, 0.05, 2500, 200); [0.4, 0.55].forEach((t) => tone(3200, t, 0.05, 0.015, 'square')); }
   else if (kind === 'boom') { noise(0, 0.7, 0.32, 1400, 50); thud(95, 0, 0.6, 0.35); }
   else if (kind === 'zap') { sweep(180, 1600, 0, 0.35, 0.04, 'sine'); sweep(2400, 300, 0.36, 0.22, 0.05); }
-  else if (kind === 'brilliant') { noise(0, 0.3, 0.05, 3000, 400); [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.15 + i * 0.08, 0.3, 0.06)); }
+  else if (kind === 'check') { stab([392, 466], 0, 0.22, 0.03); stab([523, 622], 0.12, 0.35, 0.03); }
+  else if (kind === 'combo') { stab([523, 659, 784], 0, 0.14, 0.025); stab([659, 784, 1047], 0.13, 0.4, 0.03); noise(0.13, 0.2, 0.06, 6000, 1500); }
+  else if (kind === 'gong') { thud(80, 0, 0.5, 0.25); bell(110, 0, 3, 0.12); swell(0, 1.2, 0.04, 400, 3000); }
+  else if (kind === 'blunder') { [311, 294, 277, 233].forEach((f, i) => tone(f, i * 0.2, i === 3 ? 0.7 : 0.22, 0.04, 'triangle')); }
+  else if (kind === 'cheer') { swell(0, 1.4, 0.05, 900, 1800); [523, 659, 784, 1047].forEach((f, i) => stab([f], 0.1 + i * 0.1, 0.3, 0.02)); }
+  else if (kind === 'brilliant') { noise(0, 0.3, 0.05, 3000, 400); [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.15 + i * 0.08, 0.3, 0.06)); bell(1568, 0.6, 1.2, 0.03); }
   else if (kind === 'evolve') {
+    // Summoning: a rising charge under a spinning arpeggio, the burst of light, then the reveal fanfare.
     sweep(160, 1400, 0, 1.6, 0.035, 'sine');
     sweep(240, 2100, 0.1, 1.5, 0.02, 'triangle');
-    noise(1.62, 0.5, 0.12, 9000, 600);
-    [784, 988, 1175, 1568].forEach((f, i) => tone(f, 1.65 + i * 0.07, 0.45, 0.06));
+    swell(0, 1.6, 0.06, 300, 6000);
+    [392, 523, 659, 784, 523, 659, 784, 1047, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.1 + i * 0.12, 0.16, 0.025, 'triangle'));
+    noise(1.62, 0.5, 0.14, 9000, 600);
+    thud(130, 1.62, 0.5, 0.25);
+    stab([523, 659, 784], 1.7, 0.3, 0.025);
+    stab([587, 740, 880], 1.95, 0.25, 0.025);
+    stab([784, 988, 1175, 1568], 2.15, 0.9, 0.03);
+    bell(2093, 2.2, 1.4, 0.03);
   }
   else if (kind === 'heavy') { noise(0.12, 0.35, 0.22, 4000, 120); thud(120, 0.12, 0.4, 0.28); thud(70, 0.2, 0.5, 0.2); }
-  else {
-    noise(0, 1.4, 0.12, 6000, 80);
-    thud(90, 0.05, 1.2, 0.3);
-    thud(55, 0.8, 1.2, 0.3);
-    [392, 311, 233, 196].forEach((f, i) => tone(f, 1.7 + i * 0.12, 0.5, 0.06));
-  }
+  else finisherSfx('quake');
+}
+
+/** Each checkmate finisher gets its own sound, all landing the title slam at 1.7 s. */
+export function finisherSfx(id: FinisherSound) {
+  ensureAudio();
+  // the stage goes dark
+  sweep(55, 40, 0, 1.6, 0.06, 'sawtooth');
+  if (id === 'inferno') { swell(0, 1.4, 0.16, 200, 1200, 'lowpass'); [0.2, 0.45, 0.7, 0.95].forEach((t) => noise(t, 0.25, 0.08, 3000, 300)); thud(70, 0.3, 1, 0.3); }
+  else if (id === 'glacier') { [2637, 3136, 3520, 4186, 2794, 3729].forEach((f, i) => bell(f, 0.1 + i * 0.13, 0.7, 0.025)); noise(0.9, 0.4, 0.2, 8000, 2000, 'highpass'); thud(90, 0.95, 0.3, 0.25); }
+  else if (id === 'thunder') { swell(0, 0.45, 0.08, 500, 5000); noise(0.45, 0.12, 0.45, 12000, 3000); thud(60, 0.5, 1.2, 0.4); noise(0.55, 1.1, 0.25, 900, 40); noise(1.05, 0.1, 0.25, 10000, 2000); }
+  else if (id === 'vortex') { sweep(800, 60, 0, 1.6, 0.05, 'sine'); swell(0, 1.5, 0.12, 2000, 150); [0, 0.25, 0.5, 0.75, 1].forEach((t) => sweep(600, 200, t, 0.25, 0.02, 'triangle')); }
+  else if (id === 'blade') { [0.15, 0.45, 0.75].forEach((t, i) => { noise(t, 0.15, 0.12, 8000, 1500, 'highpass'); bell(1800 + i * 300, t + 0.12, 0.6, 0.03); }); thud(140, 1, 0.3, 0.25); }
+  else if (id === 'meteor') { sweep(2000, 120, 0, 1, 0.04, 'sawtooth'); swell(0, 1, 0.12, 4000, 300); noise(1, 0.9, 0.45, 1500, 40); thud(50, 1, 1.2, 0.45); }
+  else if (id === 'venom') { [0.1, 0.35, 0.6, 0.85, 1.05].forEach((t, i) => sweep(300 + i * 40, 900 + i * 60, t, 0.2, 0.025, 'sine')); swell(0.2, 1.2, 0.08, 800, 2500); noise(0, 1.3, 0.04, 6000, 3000, 'highpass'); }
+  else { swell(0, 1.2, 0.2, 60, 200, 'lowpass'); [0.2, 0.5, 0.8, 1.1].forEach((t) => thud(55, t, 0.35, 0.3)); noise(0.1, 1.4, 0.15, 500, 40); }
+  // the title slams in
+  thud(90, 1.7, 1.2, 0.35);
+  noise(1.7, 0.6, 0.18, 3000, 100);
+  bell(73, 1.7, 3, 0.1);
+  [392, 311, 233, 196].forEach((f, i) => tone(f, 2.1 + i * 0.12, 0.5, 0.05, 'triangle'));
+}
+
+/** The sad trombone and the announcer's verdict after a blunder. */
+export function blunderSting() {
+  if (getProgress().settings.sound) combatSfx('blunder');
+  shout('Blunder!', { delay: 300 });
 }
 
 export function useSfx() {

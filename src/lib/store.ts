@@ -16,7 +16,20 @@ export interface Reward {
   xp?: number;
 }
 
-export interface LineStat { lvl: number; reps: number; last: number; due: number }
+/**
+ * Mastery of one line, in three stages: 1 = played through guided, 2 = replayed from memory,
+ * 3 (MASTERED) = a random variation played to mate without a single mistake.
+ */
+export interface LineStat {
+  lvl: number;
+  reps: number;
+  last: number;
+  due: number;
+  /** branch choices of the last guided run, replayed in stage 2 */
+  path?: number[];
+  /** variations already played through (pathKey) */
+  seen?: string[];
+}
 
 export interface Progress {
   v: 1;
@@ -39,11 +52,21 @@ export interface Progress {
   games: { played: number; won: number };
   rewards: Reward[];
   settings: { overlays: OverlayOptions; coach: boolean; sound: boolean; fx?: boolean; voice?: boolean };
+  /** local fighter profile for friend battles (nothing leaves the device except to the friend you play) */
+  profile?: Fighter;
+  battles?: { played: number; won: number; lost: number; drawn: number };
+  friends?: Record<string, Fighter & { w: number; l: number; d: number; last: number }>;
+}
+
+export interface Fighter {
+  uid: string;
+  name: string;
+  avatar: string;
 }
 
 const KEY = 'eloforge-progress-v1';
 export const MASTERED = 3;
-const INTERVALS = [0, 4 * 3600e3, 2 * 86400e3, 6 * 86400e3, 14 * 86400e3];
+const REVIEW_AFTER = 7 * 86400e3;
 
 const fresh = (): Progress => ({
   v: 1,
@@ -230,17 +253,45 @@ export const actions = {
       activity(p, success ? 10 + Math.min(p.combo, 10) * 2 : 2);
     });
   },
-  line(id: string, clean: boolean) {
+  /** A line was played out to mate in the given stage; `mistakes` decides whether it counts. */
+  stage(id: string, stage: 1 | 2 | 3, mistakes: number, choices: number[], key: string) {
     update((p) => {
       const rec = (p.lines[id] ??= { lvl: 0, reps: 0, last: 0, due: 0 });
       rec.reps++;
       rec.last = Date.now();
-      rec.lvl = clean ? Math.min(4, rec.lvl + 1) : Math.max(0, rec.lvl - 1);
-      rec.due = Date.now() + INTERVALS[rec.lvl];
+      rec.seen = [...new Set([...(rec.seen ?? []), key])];
+      const clean = mistakes === 0;
+      if (stage === 1) {
+        rec.lvl = Math.max(rec.lvl, 1);
+        rec.path = choices;
+      } else if (stage === 2 && clean) rec.lvl = Math.max(rec.lvl, 2);
+      else if (stage === 3) rec.lvl = clean ? MASTERED : Math.min(rec.lvl, 2);
+      // Mastered lines come back for a review a week later; unfinished ones are ready right away.
+      rec.due = rec.lvl >= MASTERED ? Date.now() + REVIEW_AFTER : Date.now();
       const masteredOpenings = OPENINGS.filter((o) => buildTree(o).paths.every((l) => (p.lines[lineId(o.id, l.index)]?.lvl ?? 0) >= MASTERED)).length;
       if (masteredOpenings >= 1) award(p, 'opening-1');
       if (masteredOpenings >= 5) award(p, 'opening-5');
-      activity(p, clean ? 15 : 4);
+      activity(p, stage === 3 && clean ? 60 : clean ? 25 : 8);
+    });
+  },
+  setProfile(name: string, avatar: string) {
+    update((p) => {
+      p.profile = { uid: p.profile?.uid ?? Math.random().toString(36).slice(2, 12), name: name.trim().slice(0, 20), avatar };
+    });
+  },
+  battle(friend: Fighter, result: 'win' | 'loss' | 'draw') {
+    update((p) => {
+      const b = (p.battles ??= { played: 0, won: 0, lost: 0, drawn: 0 });
+      b.played++;
+      if (result === 'win') b.won++;
+      else if (result === 'loss') b.lost++;
+      else b.drawn++;
+      const f = ((p.friends ??= {})[friend.uid] ??= { ...friend, w: 0, l: 0, d: 0, last: 0 });
+      Object.assign(f, { name: friend.name, avatar: friend.avatar, last: Date.now() });
+      if (result === 'win') f.w++;
+      else if (result === 'loss') f.l++;
+      else f.d++;
+      activity(p, result === 'win' ? 40 : result === 'draw' ? 20 : 10);
     });
   },
   endgame(id: string, clean: boolean) {

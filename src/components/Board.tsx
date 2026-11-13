@@ -8,7 +8,7 @@ import type { FinisherId } from '../lib/finishers';
 import { Announce, CallOut, EvolveFx, FinisherFx, ImpactFx, ShotFx, type Impact, type Shot, type ShotKind } from './CombatFx';
 import { FINISHERS } from '../lib/finishers';
 import { shout } from '../lib/announcer';
-import { combatSfx } from './ui';
+import { combatSfx, finisherSfx, type CombatSound } from './ui';
 
 export interface BoardMove {
   from: Square;
@@ -52,10 +52,10 @@ interface Sprite {
 }
 
 /** Signature attack per piece: melee pieces land the blow on arrival, ranged ones fire first and move after. */
-const ATTACK: Record<string, { anim?: Sprite['anim']; shot?: ShotKind; sound?: 'shot' | 'boom' | 'zap'; hit: number; hold?: number }> = {
-  P: { anim: 'strike', hit: 230 },
-  N: { anim: 'salto', hit: 430 },
-  K: { anim: 'slam', hit: 400 },
+const ATTACK: Record<string, { anim?: Sprite['anim']; shot?: ShotKind; sound?: CombatSound; hit: number; hold?: number }> = {
+  P: { anim: 'strike', sound: 'punch', hit: 230 },
+  N: { anim: 'salto', sound: 'salto', hit: 430 },
+  K: { anim: 'slam', sound: 'slam', hit: 400 },
   B: { shot: 'gun', sound: 'shot', hit: 550, hold: 640 },
   R: { shot: 'cannon', sound: 'boom', hit: 550, hold: 640 },
   Q: { shot: 'beam', sound: 'zap', hit: 500, hold: 640 },
@@ -233,6 +233,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
         settleMs.current = style.hold! + 280;
       } else if (attacker && style.anim) {
         if (attacker.anim !== 'instant') attacker.anim = style.anim;
+        if (sound && style.sound && attacker.anim !== 'instant') combatSfx(style.sound);
         settleMs.current = Math.max(settleMs.current, style.hit + 60);
       }
       const power = Math.max(...victims.map((v) => VALUE[v.key[1].toLowerCase()]));
@@ -251,6 +252,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
         if (sound) combatSfx(power >= 3 ? 'heavy' : 'hit');
         if (power >= 3 && !kingSq) shout(power === 4 ? 'Devastating!' : 'Brutal!');
       }, hitAt);
+      later(() => sound && combatSfx('ko'), hitAt + 120);
       later(() => setSprites((cur) => cur.filter((x) => !ids.has(x.id))), hitAt + 900);
     } else if (moved.length && sound) combatSfx('whoosh');
     // Promotion: once the pawn lands, summon the new piece.
@@ -275,6 +277,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
       const c = { id: ++spriteSeq, sq: kingSq, text: victims.length ? 'COMBO!' : 'CHECK!', kind: (victims.length ? 'combo' : 'check') as 'combo' | 'check' };
       const show = () => {
         setCallout(c);
+        if (sound && !chess.isCheckmate()) combatSfx(victims.length ? 'combo' : 'check');
         if (victims.length) shout('Combo!');
       };
       if (hitAt) later(show, hitAt);
@@ -293,7 +296,11 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
       const at = squareXY(sq, orientation);
       setSprites((cur) => cur.map((x) => (x.sq === sq && !x.dying && !x.ko ? { ...x, anim: piece.type === 'n' ? 'flourish-n' : 'flourish' } : x)));
       setCallout({ id: ++spriteSeq, sq, text: celebrate.text, kind: 'brilliant' });
-      if (settings.sound) combatSfx('brilliant');
+      if (settings.sound) {
+        combatSfx('brilliant');
+        if (piece.type === 'n') combatSfx('salto');
+        else if (!ATTACK[piece.type.toUpperCase()].shot) combatSfx('cheer');
+      }
       shout(celebrate.text.replace(/!+$/, '!'));
       const style = ATTACK[piece.type.toUpperCase()];
       const sky = { x: at.x + (at.x < 4 ? 1.5 : -1.5), y: Math.max(-0.5, at.y - 3.5) };
@@ -314,7 +321,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
     const t = window.setTimeout(() => {
       setMateFx(fen);
       setShake(0);
-      if (settings.sound) combatSfx('finisher');
+      if (settings.sound) finisherSfx(finisher);
       const defeated = chess.turn() === orientation;
       shout(`${FINISHERS[finisher].name.toLowerCase()}!`, { delay: 900, interrupt: true });
       shout(defeated ? 'You have been finished.' : 'Checkmate! You win.', { delay: 2300 });
@@ -326,6 +333,7 @@ export default function Board({ fen, orientation, interactive, onMove, arrows = 
   useEffect(() => {
     if (!announce || !fx) return;
     setShownAnnounce(announce.key);
+    if (settings.sound) combatSfx('gong');
     shout(announce.text.charAt(0) + announce.text.slice(1).toLowerCase(), { interrupt: true });
     const t = window.setTimeout(() => setShownAnnounce(null), 1350);
     return () => clearTimeout(t);

@@ -19,7 +19,7 @@ export default function Home() {
   const due = OPENINGS.filter((o) => o.tier <= p.tier + 1).flatMap((o) =>
     buildTree(o).paths
       .map((l) => ({ o, l, s: p.lines[lineId(o.id, l.index)] }))
-      .filter((x) => x.s && x.s.due <= Date.now() && x.s.lvl < 4),
+      .filter((x) => x.s && x.s.due <= Date.now()),
   );
 
   const week = Array.from({ length: 7 }, (_, i) => {
@@ -79,14 +79,19 @@ export default function Home() {
         {due.length > 0 && (
           <button className="quick-card accent" onClick={() => go({ name: 'opening-train', id: due[0].o.id, mode: 'drill', line: due[0].l.index })}>
             <span className="q-icon">🔁</span>
-            <b>{due.length} line{due.length > 1 ? 's' : ''} due for review</b>
-            <small>Spaced repetition keeps your repertoire sharp</small>
+            <b>{due.length} line{due.length > 1 ? 's' : ''} waiting for you</b>
+            <small>Next stage or weekly review: play it out to mate</small>
           </button>
         )}
         <button className="quick-card" onClick={() => go({ name: 'puzzle' })}>
           <span className="q-icon">⚔️</span>
           <b>Next puzzle</b>
           <small>Combo ×{p.combo} · best ×{p.bestCombo}</small>
+        </button>
+        <button className="quick-card" onClick={() => go({ name: 'battle' })}>
+          <span className="q-icon">🤜</span>
+          <b>Battle a friend</b>
+          <small>Send a link, fight live</small>
         </button>
         <button className="quick-card" onClick={() => go({ name: 'openings' })}>
           <span className="q-icon">📖</span>

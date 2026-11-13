@@ -349,3 +349,45 @@ ul { margin: 6px 0; padding-left: 18px; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .sheet .feed-body { max-height: none; flex: 1; padding: 10px 12px 16px; }
 .trainer { padding-bottom: 72px; }
+
+/* ── Friend battles ── */
+.battle-hero { display: flex; flex-direction: column; gap: 10px; }
+.battle-hero h1 { margin: 2px 0 0; font-size: 22px; }
+.battle-hero p { margin: 0; }
+.battle-cta { display: flex; gap: 12px; align-items: center; text-align: left; width: 100%; margin-top: 12px; border-color: var(--accent); }
+.battle-cta div { display: flex; flex-direction: column; gap: 3px; }
+.battle-cta small { font-size: 12px; }
+.profile-form { display: flex; flex-direction: column; gap: 10px; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.field input, .battle-hero input { font: inherit; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--text); background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.grow { flex: 1; min-width: 0; }
+.avatar-pick { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.avatar-pick button { aspect-ratio: 1; font-size: 22px; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; display: grid; place-items: center; padding: 0; }
+.avatar-pick button.on { border-color: var(--accent); background: rgba(245, 158, 11, 0.18); transform: scale(1.06); }
+.fighter-card { position: relative; display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px; }
+.fighter-card .grow { display: flex; flex-direction: column; }
+.fighter-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.fighter-card.big { border: 0; padding: 0; background: none; font-size: 18px; }
+.avatar { font-size: 24px; width: 36px; height: 36px; display: grid; place-items: center; background: var(--bg2); border-radius: 50%; flex: none; }
+.fighter-card.big .avatar { width: 48px; height: 48px; font-size: 30px; }
+.clock { font-variant-numeric: tabular-nums; font-weight: 900; font-size: 18px; padding: 4px 10px; border-radius: 8px; background: var(--bg2); color: var(--muted); }
+.clock.on { background: var(--text); color: var(--bg); }
+.clock.low.on { background: #dc2626; color: #fff; animation: pulse-low 0.8s ease-in-out infinite; }
+@keyframes pulse-low { 50% { opacity: 0.6; } }
+.emote-bubble { position: absolute; right: 64px; top: -14px; background: #fff; color: #111; font-size: 22px; font-weight: 900; padding: 4px 10px; border-radius: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); animation: emote 2.6s ease-out both; z-index: 5; pointer-events: none; }
+@keyframes emote { 0% { transform: scale(0.2) translateY(10px); opacity: 0; } 12% { transform: scale(1.15); opacity: 1; } 20% { transform: scale(1); } 85% { opacity: 1; } 100% { transform: translateY(-16px); opacity: 0; } }
+.emotes { display: flex; gap: 4px; flex-wrap: wrap; }
+.emotes .chip { padding: 4px 8px; font-size: 15px; }
+.invite-box { background: var(--bg2); border: 1px dashed var(--accent); border-radius: 10px; padding: 10px; overflow-wrap: anywhere; font-size: 13px; }
+.or { text-align: center; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 4px; }
+.error-note { color: #fca5a5; font-size: 13.5px; }
+.pulse-dots { display: flex; gap: 8px; justify-content: center; padding: 8px; }
+.pulse-dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: pulse-dot 1.2s ease-in-out infinite; }
+.pulse-dots i:nth-child(2) { animation-delay: 0.2s; }
+.pulse-dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pulse-dot { 0%, 100% { opacity: 0.25; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } }
+.battle-record { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.battle-record h3 { margin: 0; }
+.friend-row { display: flex; align-items: center; gap: 10px; }
+.battle .fighter-card { margin: 2px 0; }
+.stage-meta { display: block; font-size: 11.5px; font-weight: 600; }

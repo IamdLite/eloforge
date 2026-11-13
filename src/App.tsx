@@ -11,6 +11,7 @@ import Endgames from './screens/Endgames';
 import EndgameTrainer from './screens/EndgameTrainer';
 import Play from './screens/Play';
 import Profile from './screens/Profile';
+import Battle from './screens/Battle';
 
 export type Route =
   | { name: 'home' }
@@ -22,7 +23,8 @@ export type Route =
   | { name: 'endgames' }
   | { name: 'endgame'; id: string }
   | { name: 'play'; fen?: string; side?: 'w' | 'b'; opening?: string }
-  | { name: 'profile' };
+  | { name: 'profile' }
+  | { name: 'battle'; join?: string };
 
 const NavCtx = createContext<{ go: (r: Route) => void; back: () => void }>({ go: () => {}, back: () => {} });
 export const useNav = () => useContext(NavCtx);
@@ -36,10 +38,14 @@ const TABS: { name: Route['name']; icon: string; label: string }[] = [
 ];
 
 const tabOf = (r: Route): Route['name'] =>
-  r.name.startsWith('opening') ? 'openings' : r.name === 'puzzle' ? 'tactics' : r.name === 'endgame' ? 'endgames' : r.name;
+  r.name.startsWith('opening') ? 'openings' : r.name === 'puzzle' ? 'tactics' : r.name === 'endgame' ? 'endgames' : r.name === 'battle' ? 'play' : r.name;
+
+// Invite links (?join=<peer id>) open straight into the battle; the query is dropped so reloads don't rejoin.
+const inviteJoin = new URLSearchParams(location.search).get('join');
+if (inviteJoin) history.replaceState(null, '', location.pathname);
 
 export default function App() {
-  const [stack, setStack] = useState<Route[]>([{ name: 'home' }]);
+  const [stack, setStack] = useState<Route[]>(() => (inviteJoin ? [{ name: 'home' }, { name: 'battle', join: inviteJoin }] : [{ name: 'home' }]));
   const route = stack[stack.length - 1];
   const p = useProgress();
 
@@ -88,6 +94,7 @@ export default function App() {
         {route.name === 'endgame' && <EndgameTrainer key={route.id} id={route.id} />}
         {route.name === 'play' && <Play key={route.fen ?? 'new'} startFen={route.fen} startSide={route.side} opening={route.opening} />}
         {route.name === 'profile' && <Profile />}
+        {route.name === 'battle' && <Battle join={route.join} />}
       </main>
 
       <nav className="tabbar">
